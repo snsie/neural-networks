@@ -8,15 +8,18 @@ import { wireCalculusDialog } from './calculus.js';
   const GRID_R = 64;
   const MIN_HIDDEN = 1;
   const MAX_HIDDEN = 8;
+  const MIN_LAYERS = 1;
+  const MAX_LAYERS = 4;
   const CLASS_NAMES = ['orange', 'blue', 'green'];
   const LRS = [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1];
   const SUBS = '₀₁₂₃₄₅₆₇₈₉';
   const sub = n => String(n).split('').map(d => SUBS[+d]).join('');
+  const SUP = n => `⁽${String(n).split('').map(d => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+d]).join('')}⁾`;
   const fmt = (v, d = 3) => (Math.abs(v) < 0.5 * Math.pow(10, -d) ? 0 : v).toFixed(d).replace('-', '−');
 
   const state = {
     dsId: 'circle', noise: 0.1, seed: 1, initSeed: 1,
-    H: 1, actId: 'relu', lr: 0.03, optimizer: 'adam',
+    H: 1, L: 1, actId: 'relu', lr: 0.03, optimizer: 'adam',
     playing: false, epoch: 0, showTest: true,
     mode: 'formatted', step: 0,
   };
@@ -136,14 +139,20 @@ import { wireCalculusDialog } from './calculus.js';
 
   function resetNet() {
     const act = Activations.get(state.actId);
-    net = new NN.Net({ hidden: state.H, classes: data.classes, act, seed: state.initSeed * 7919 + state.H * 31 });
+    net = new NN.Net({
+      hidden: state.H, layers: state.L, classes: data.classes, act,
+      seed: state.initSeed * 7919 + state.H * 31 + (state.L - 1) * 104729,
+    });
     state.epoch = 0;
     history = { train: [], test: [] };
-    netViz.build({ H: net.H, O: net.O, K: net.K, actName: act.name, outMode: net.outMode });
+    netViz.build({ H: net.H, L: net.L, O: net.O, K: net.K, actName: act.name, outMode: net.outMode });
     updateOutChip();
     $('#hVal').textContent = state.H;
     $('#hMinus').disabled = state.H <= MIN_HIDDEN;
     $('#hPlus').disabled = state.H >= MAX_HIDDEN;
+    $('#lVal').textContent = state.L;
+    $('#lMinus').disabled = state.L <= MIN_LAYERS;
+    $('#lPlus').disabled = state.L >= MAX_LAYERS;
     recordMetrics(true);
     refreshVisuals();
     renderWalk(true);
@@ -265,10 +274,10 @@ import { wireCalculusDialog } from './calculus.js';
 
   function nodeValues(step) {
     const out = {};
-    const map = { in: i => `in${i}`, hid: j => `h${j}`, out: k => `o${k}`, loss: () => 'loss' };
-    for (const grp in step.vals) {
-      const v = step.vals[grp];
-      v.arr.forEach((x, i) => { out[map[grp](i)] = { text: fmt(x, 2), label: v.label, kind: v.kind }; });
+    const id = (key, i) => (key === 'in' ? `in${i}` : key === 'out' ? `o${i}` : key === 'loss' ? 'loss' : `${key}-${i}`);
+    for (const key in step.vals) {
+      const v = step.vals[key];
+      v.arr.forEach((x, i) => { out[id(key, i)] = { text: fmt(x, 2), label: v.label, kind: v.kind }; });
     }
     return out;
   }
@@ -337,19 +346,21 @@ import { wireCalculusDialog } from './calculus.js';
       const i = +id.slice(2);
       return { title: `x${sub(i + 1)} · input`, sub: subt, rows: [['value', f(c.x[i])]] };
     }
-    if (id.startsWith('h')) {
-      const j = +id.slice(1);
+    let m = id.match(/^h(\d+)-(\d+)$/);
+    if (m) {
+      const l = +m[1], j = +m[2];
+      const name = net.L === 1 ? `h${sub(j + 1)} · hidden` : `h${sub(l + 1)},${sub(j + 1)} · hidden layer ${l + 1}`;
       return {
-        title: `h${sub(j + 1)} · hidden (${net.act.name})`, sub: subt,
-        rows: [['bias b', f(net.b1[j])], ['z', f(c.z1[j])], ['a = f(z)', f(c.a1[j])], ["f′(z)", f(g.dadz[j])], ['∂L/∂a', f(g.da1[j])], ['δ = ∂L/∂z', f(g.dz1[j])]],
+        title: `${name} (${net.act.name})`, sub: subt,
+        rows: [['bias b', f(net.b[l][j])], ['z', f(c.z[l][j])], ['a = f(z)', f(c.a[l][j])], ["f′(z)", f(g.dadz[l][j])], ['∂L/∂a', f(g.da[l][j])], ['δ = ∂L/∂z', f(g.dz[l][j])]],
       };
     }
     if (id.startsWith('o')) {
-      const k = +id.slice(1);
+      const k = +id.slice(1), Lo = net.L;
       const name = net.O === 1 ? `P(${CLASS_NAMES[1]})` : CLASS_NAMES[k];
       return {
         title: `${net.O === 1 ? 'ŷ' : `ŷ${sub(k + 1)}`} · output (${net.outMode})`, sub: `${name}, ${subt}`,
-        rows: [['bias b', f(net.b2[k])], ['z', f(c.z2[k])], ['ŷ', f(c.yhat[k])], ['target y', String(g.t[k])], ['δ = ŷ − y', f(g.dz2[k])]],
+        rows: [['bias b', f(net.b[Lo][k])], ['z', f(c.z[Lo][k])], ['ŷ', f(c.yhat[k])], ['target y', String(g.t[k])], ['δ = ŷ − y', f(g.dz[Lo][k])]],
       };
     }
     if (id === 'loss') {
@@ -358,15 +369,13 @@ import { wireCalculusDialog } from './calculus.js';
         rows: [['L', f(net.loss(c, sample.label))], ['true class', CLASS_NAMES[sample.label]], ['predicted', CLASS_NAMES[net.predict(c)]]],
       };
     }
-    let m = id.match(/^e1-(\d+)-(\d+)$/);
+    m = id.match(/^e(\d+)-(\d+)-(\d+)$/);
     if (m) {
-      const j = +m[1], i = +m[2];
-      return { title: `w⁽¹⁾ ${j + 1},${i + 1} : x${sub(i + 1)} → h${sub(j + 1)}`, sub: subt, rows: [['weight', f(net.W1[j][i])], ['∂L/∂w', f(g.dW1[j][i])]] };
-    }
-    m = id.match(/^e2-(\d+)-(\d+)$/);
-    if (m) {
-      const k = +m[1], j = +m[2];
-      return { title: `w⁽²⁾ ${k + 1},${j + 1} : h${sub(j + 1)} → ŷ${net.O > 1 ? sub(k + 1) : ''}`, sub: subt, rows: [['weight', f(net.W2[k][j])], ['∂L/∂w', f(g.dW2[k][j])]] };
+      const l = +m[1], j = +m[2], i = +m[3];
+      const hName = (layer, n) => (net.L === 1 ? `h${sub(n + 1)}` : `h${sub(layer + 1)},${sub(n + 1)}`);
+      const from = l === 0 ? `x${sub(i + 1)}` : hName(l - 1, i);
+      const to = l === net.L ? `ŷ${net.O > 1 ? sub(j + 1) : ''}` : hName(l, j);
+      return { title: `w${SUP(l + 1)} ${j + 1},${i + 1} : ${from} → ${to}`, sub: subt, rows: [['weight', f(net.W[l][j][i])], ['∂L/∂w', f(g.dW[l][j][i])]] };
     }
     return null;
   }
@@ -408,6 +417,8 @@ import { wireCalculusDialog } from './calculus.js';
 
     $('#hMinus').addEventListener('click', () => { if (state.H > MIN_HIDDEN) { state.H--; resetNet(); } });
     $('#hPlus').addEventListener('click', () => { if (state.H < MAX_HIDDEN) { state.H++; resetNet(); } });
+    $('#lMinus').addEventListener('click', () => { if (state.L > MIN_LAYERS) { state.L--; resetNet(); } });
+    $('#lPlus').addEventListener('click', () => { if (state.L < MAX_LAYERS) { state.L++; resetNet(); } });
 
     const noise = $('#noise');
     noise.addEventListener('input', () => {
@@ -504,8 +515,10 @@ import { wireCalculusDialog } from './calculus.js';
     if (Activations.list.some(a => a.id === q.get('act'))) state.actId = q.get('act');
     const h = parseInt(q.get('h'), 10);
     if (h >= MIN_HIDDEN && h <= MAX_HIDDEN) state.H = h;
+    const layers = parseInt(q.get('layers'), 10);
+    if (layers >= MIN_LAYERS && layers <= MAX_LAYERS) state.L = layers;
     const step = Number(q.get('step'));
-    if (Number.isInteger(step) && step >= 1 && step <= 12) state.step = step - 1;
+    if (Number.isInteger(step) && step >= 1) state.step = step - 1; // clamped once steps are built
     if (q.get('mode') === 'symbolic' || q.get('mode') === 'formatted') state.mode = q.get('mode');
     return Math.min(2000, Math.max(0, parseInt(q.get('epochs'), 10) || 0));
   }

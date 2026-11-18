@@ -454,7 +454,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .timeline-label { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .01em; }
 .timeline-label span { margin-inline-start: 3px; opacity: .7; }
 .timeline-track {
-  display: flex; align-items: center; gap: var(--node-gap);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--node-gap);
   position: relative; isolation: isolate;
 }
 .timeline-track::before {

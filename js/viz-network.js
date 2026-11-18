@@ -39,26 +39,34 @@
     }
 
     build(cfg) {
-      // cfg: {H, O, K, actName, outMode}
+      // cfg: {H, L, O, K, actName, outMode}
       this.cfg = cfg;
+      const L = cfg.L || 1;
       this.gEdges.innerHTML = ''; this.gPulse.innerHTML = ''; this.gHit.innerHTML = '';
       this.nodeLayer.innerHTML = ''; this.labelLayer.innerHTML = '';
       this.nodes.clear(); this.edges.clear();
       this._hideTip();
 
-      const cols = { in: [], hid: [], out: [], loss: [] };
+      this.colKeys = ['in', ...Array.from({ length: L }, (_, l) => `h${l}`), 'out', 'loss'];
+      const cols = Object.fromEntries(this.colKeys.map(k => [k, []]));
       let d = 0;
       const delay = () => `${(d++ * 0.035).toFixed(3)}s`;
-      for (let i = 0; i < 2; i++) cols.in.push(this._node(`in${i}`, 'in', `x${sub(i + 1)}`, null, delay()));
-      for (let j = 0; j < cfg.H; j++) cols.hid.push(this._node(`h${j}`, 'hid', `h${sub(j + 1)}`, null, delay()));
-      for (let k = 0; k < cfg.O; k++) {
-        cols.out.push(this._node(`o${k}`, 'out', cfg.O === 1 ? 'ŷ' : `ŷ${sub(k + 1)}`, cfg.O === 1 ? null : k, delay()));
+      const hidLabel = (l, j) => (L === 1 ? `h${sub(j + 1)}` : `h${sub(l + 1)},${sub(j + 1)}`);
+      for (let i = 0; i < 2; i++) cols.in.push(this._node(`in${i}`, 'in', 'in', `x${sub(i + 1)}`, null, delay()));
+      for (let l = 0; l < L; l++) {
+        for (let j = 0; j < cfg.H; j++) cols[`h${l}`].push(this._node(`h${l}-${j}`, 'hid', `h${l}`, hidLabel(l, j), null, delay()));
       }
-      cols.loss.push(this._node('loss', 'loss', 'loss', null, delay()));
+      for (let k = 0; k < cfg.O; k++) {
+        cols.out.push(this._node(`o${k}`, 'out', 'out', cfg.O === 1 ? 'ŷ' : `ŷ${sub(k + 1)}`, cfg.O === 1 ? null : k, delay()));
+      }
+      cols.loss.push(this._node('loss', 'loss', 'loss', 'loss', null, delay()));
       this.cols = cols;
 
-      for (let j = 0; j < cfg.H; j++) for (let i = 0; i < 2; i++) this._edge(`e1-${j}-${i}`, `in${i}`, `h${j}`, 'e1', { j, i });
-      for (let k = 0; k < cfg.O; k++) for (let j = 0; j < cfg.H; j++) this._edge(`e2-${k}-${j}`, `h${j}`, `o${k}`, 'e2', { k, j });
+      // Edge group `e${l}` holds the weights W[l] feeding layer l (l = L is the output layer).
+      for (let l = 0; l <= L; l++) {
+        const src = cols[this.colKeys[l]], dst = cols[this.colKeys[l + 1]];
+        dst.forEach((b, j) => src.forEach((a, i) => this._edge(`e${l}-${j}-${i}`, a.id, b.id, `e${l}`, { l, j, i })));
+      }
       for (let k = 0; k < cfg.O; k++) this._edge(`l-${k}`, `o${k}`, 'loss', 'el', { k });
 
       const lab = (title, s) => {
@@ -67,17 +75,17 @@
         el('span', '', e).textContent = s;
         return e;
       };
-      this.labels = {
-        in: lab('Input', '2'),
-        hid: lab('Hidden', `${cfg.H} · ${cfg.actName}`),
-        out: lab('Output', `${cfg.O} · ${cfg.outMode}`),
-        loss: lab('Loss', cfg.outMode === 'sigmoid' ? 'BCE' : 'CE'),
-      };
+      this.labels = { in: lab('Input', '2') };
+      for (let l = 0; l < L; l++) {
+        this.labels[`h${l}`] = lab(L === 1 ? 'Hidden' : `Hidden ${l + 1}`, L > 2 ? `${cfg.H}` : `${cfg.H} · ${cfg.actName}`);
+      }
+      this.labels.out = lab('Output', `${cfg.O} · ${cfg.outMode}`);
+      this.labels.loss = lab('Loss', cfg.outMode === 'sigmoid' ? 'BCE' : 'CE');
 
       this.layout();
     }
 
-    _node(id, group, label, classIdx, delay) {
+    _node(id, group, key, label, classIdx, delay) {
       const n = el('div', `node node--${group}`, this.nodeLayer);
       n.style.setProperty('--d', delay);
       let canvas = null;
@@ -86,7 +94,7 @@
       if (classIdx != null) n.style.setProperty('--ring', `var(--c${classIdx})`);
       el('div', 'node-label', n).textContent = label;
       const val = el('div', 'node-val', n);
-      const rec = { id, group, el: n, canvas, val, x: 0, y: 0 };
+      const rec = { id, group, key, el: n, canvas, val, x: 0, y: 0 };
       n.addEventListener('mouseenter', () => this._showTip(id, rec.x + 30, rec.y - 16));
       n.addEventListener('mouseleave', () => this._hideTip());
       this.nodes.set(id, rec);
@@ -118,10 +126,11 @@
       const top = 43, bottom = 20;
       const avail = Hh - top - bottom, mid = top + avail / 2;
       const spacing = avail / Math.max(this.cfg.H, this.cfg.O);
-      const size = Math.min(42, Math.max(14, spacing - 5), W * 0.1);
+      const colGap = (W * 0.85) / (this.colKeys.length - 1);
+      const size = Math.min(42, Math.max(14, spacing - 5), W * 0.1, colGap * 0.45);
       this.root.style.setProperty('--node-size', `${size}px`);
-      const xs = { in: W * 0.08, hid: W * 0.36, out: W * 0.65, loss: W * 0.93 };
-      for (const g of ['in', 'hid', 'out', 'loss']) {
+      const xs = Object.fromEntries(this.colKeys.map((k, c) => [k, W * 0.08 + c * colGap]));
+      for (const g of this.colKeys) {
         const list = this.cols[g], n = list.length;
         const sp = Math.min(g === 'in' ? 90 : 60, avail / n);
         list.forEach((rec, i) => {
@@ -147,9 +156,8 @@
     updateWeights(net) {
       for (const e of this.edges.values()) {
         let w;
-        if (e.group === 'e1') w = net.W1[e.j][e.i];
-        else if (e.group === 'e2') w = net.W2[e.k][e.j];
-        else continue;
+        if (e.group === 'el') continue;
+        w = net.W[e.l][e.j][e.i];
         const m = Math.abs(w);
         e.base.setAttribute('stroke-width', (0.6 + 4.4 * Math.tanh(m / 1.5)).toFixed(2));
         e.base.setAttribute('stroke-opacity', (0.3 + 0.65 * Math.tanh(m)).toFixed(2));
@@ -180,7 +188,7 @@
     /** Paint each neuron's response over the input plane. */
     drawNeurons(grid, pal) {
       if (!this.cfg) return;
-      const R = grid.R, H = grid.H, K = grid.K, ext = grid.ext;
+      const R = grid.R, H = grid.H, K = grid.K, ext = grid.ext, L = grid.L;
       this._R = R;
       this.off.width = R; this.off.height = R;
       const white = pal.surface;
@@ -193,10 +201,13 @@
           return div(v / ext);
         });
       }
-      for (let j = 0; j < H; j++) {
-        let m = 1e-6;
-        for (let i = 0; i < R * R; i++) m = Math.max(m, Math.abs(grid.hidden[i * H + j]));
-        this._paint(this.nodes.get(`h${j}`), idx => div(grid.hidden[idx * H + j] / m));
+      for (let l = 0; l < L; l++) {
+        const hl = grid.hidden[l];
+        for (let j = 0; j < H; j++) {
+          let m = 1e-6;
+          for (let i = 0; i < R * R; i++) m = Math.max(m, Math.abs(hl[i * H + j]));
+          this._paint(this.nodes.get(`h${l}-${j}`), idx => div(hl[idx * H + j] / m));
+        }
       }
       if (this.cfg.O === 1) {
         this._paint(this.nodes.get('o0'), idx => {
@@ -227,7 +238,7 @@
     highlight(spec) {
       this.root.classList.toggle('focus', !!spec);
       this.root.classList.toggle('dir-bwd', !!spec && spec.dir === 'bwd');
-      for (const rec of this.nodes.values()) rec.el.classList.toggle('on', !!spec && spec.nodes.includes(rec.group));
+      for (const rec of this.nodes.values()) rec.el.classList.toggle('on', !!spec && spec.nodes.includes(rec.key));
       for (const e of this.edges.values()) {
         const on = !!spec && spec.edges.includes(e.group);
         e.base.classList.toggle('on', on);

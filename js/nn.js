@@ -1,7 +1,11 @@
-/* A tiny dense network: 2 inputs -> H hidden -> O outputs.
+/* A tiny dense network: 2 inputs -> L hidden layers of H neurons -> O outputs.
+ * Every hidden layer uses the same activation function.
  * 2 classes: 1 sigmoid output + binary cross-entropy.
  * 3 classes: 3 softmax outputs + categorical cross-entropy.
- * In both cases dL/dz2 = yhat - y, which keeps the backward pass clean. */
+ * In both cases dL/dz(out) = yhat - y, which keeps the backward pass clean.
+ *
+ * Indexing: layer l = 0..L, where l < L are hidden layers and l = L is the output.
+ * W[l] has shape sizes[l+1] x sizes[l], with sizes = [2, H, ..., H, O]. */
 (function () {
   'use strict';
 
@@ -10,51 +14,63 @@
   const sigmoid = z => z >= 0 ? 1 / (1 + Math.exp(-z)) : Math.exp(z) / (1 + Math.exp(z));
 
   class Net {
-    constructor({ hidden, classes, act, seed = 1 }) {
+    constructor({ hidden, layers = 1, classes, act, seed = 1 }) {
       this.H = hidden;
+      this.L = layers;
       this.K = classes;
       this.O = classes === 2 ? 1 : classes;
       this.outMode = classes === 2 ? 'sigmoid' : 'softmax';
       this.act = act;
       this.t = 0;
+      this.sizes = [2, ...Array(layers).fill(hidden), this.O];
       const rng = Datasets.makeRng(seed);
-      const s1 = Math.sqrt((act.init === 'he' ? 2 : 1) / 2) * 1.25;
-      const s2 = Math.sqrt(1 / hidden) * 1.25;
-      this.W1 = zeros2(hidden, 2).map(r => r.map(() => rng.normal() * s1));
-      this.b1 = zeros(hidden).map(() => (act.init === 'he' ? 0.05 : 0));
-      this.W2 = zeros2(this.O, hidden).map(r => r.map(() => rng.normal() * s2));
-      this.b2 = zeros(this.O);
+      this.W = []; this.b = [];
+      for (let l = 0; l <= layers; l++) {
+        const nIn = this.sizes[l], nOut = this.sizes[l + 1], isOut = l === layers;
+        const s = Math.sqrt((!isOut && act.init === 'he' ? 2 : 1) / nIn) * 1.25;
+        this.W.push(zeros2(nOut, nIn).map(r => r.map(() => rng.normal() * s)));
+        this.b.push(zeros(nOut).map(() => (!isOut && act.init === 'he' ? 0.05 : 0)));
+      }
       this.m = this._zerosLike();
       this.v = this._zerosLike();
     }
 
     _zerosLike() {
-      return { W1: zeros2(this.H, 2), b1: zeros(this.H), W2: zeros2(this.O, this.H), b2: zeros(this.O) };
+      return { W: this.W.map(M => zeros2(M.length, M[0].length)), b: this.b.map(v => zeros(v.length)) };
     }
 
     forward(x1, x2) {
-      const { H, O, W1, b1, W2, b2, act } = this;
-      const z1 = new Array(H), a1 = new Array(H), z2 = new Array(O);
-      for (let j = 0; j < H; j++) {
-        z1[j] = W1[j][0] * x1 + W1[j][1] * x2 + b1[j];
-        a1[j] = act.f(z1[j]);
+      const { L, W, b, act } = this;
+      const x = [x1, x2];
+      const z = [], a = [];
+      let prev = x;
+      for (let l = 0; l <= L; l++) {
+        const Wl = W[l], bl = b[l], n = Wl.length;
+        const zl = new Array(n);
+        for (let j = 0; j < n; j++) {
+          let s = bl[j];
+          const row = Wl[j];
+          for (let i = 0; i < prev.length; i++) s += row[i] * prev[i];
+          zl[j] = s;
+        }
+        z.push(zl);
+        if (l < L) { prev = zl.map(v => act.f(v)); a.push(prev); }
       }
-      for (let k = 0; k < O; k++) {
-        let s = b2[k];
-        for (let j = 0; j < H; j++) s += W2[k][j] * a1[j];
-        z2[k] = s;
-      }
+      const zo = z[L];
       let yhat;
       if (this.outMode === 'sigmoid') {
-        yhat = [sigmoid(z2[0])];
+        yhat = [sigmoid(zo[0])];
       } else {
-        const m = Math.max(...z2);
-        const e = z2.map(z => Math.exp(z - m));
-        const s = e.reduce((a, b) => a + b, 0);
+        const m = Math.max(...zo);
+        const e = zo.map(v => Math.exp(v - m));
+        const s = e.reduce((p, q) => p + q, 0);
         yhat = e.map(v => v / s);
       }
-      return { x: [x1, x2], z1, a1, z2, yhat };
+      return { x, z, a, yhat };
     }
+
+    /** Input to layer l (x for l = 0, otherwise the previous hidden activation). */
+    input(c, l) { return l === 0 ? c.x : c.a[l - 1]; }
 
     /** Class probabilities (length K) from a forward cache. */
     probs(c) { return this.outMode === 'sigmoid' ? [1 - c.yhat[0], c.yhat[0]] : c.yhat; }
@@ -79,22 +95,31 @@
       return -Math.log(Math.max(c.yhat[label], eps));
     }
 
+    /** Per-layer arrays: dz[l], dW[l], db[l] for l = 0..L; da[h], dadz[h] for hidden layers h = 0..L-1. */
     backward(c, label) {
-      const { H, O, W2, act } = this;
+      const { L, W, act } = this;
       const t = this.target(label);
-      const dz2 = c.yhat.map((p, k) => p - t[k]);
-      const dW2 = dz2.map(d => c.a1.map(a => d * a));
-      const db2 = dz2.slice();
-      const da1 = new Array(H), dadz = new Array(H), dz1 = new Array(H);
-      for (let j = 0; j < H; j++) {
-        let s = 0;
-        for (let k = 0; k < O; k++) s += W2[k][j] * dz2[k];
-        da1[j] = s;
-        dadz[j] = act.df(c.z1[j]);
-        dz1[j] = s * dadz[j];
+      const dz = new Array(L + 1), dW = new Array(L + 1), db = new Array(L + 1);
+      const da = new Array(L), dadz = new Array(L);
+      dz[L] = c.yhat.map((p, k) => p - t[k]);
+      for (let l = L; l >= 0; l--) {
+        const inp = this.input(c, l);
+        dW[l] = dz[l].map(d => inp.map(v => d * v));
+        db[l] = dz[l].slice();
+        if (l === 0) break;
+        const h = l - 1, n = W[l][0].length;
+        da[h] = new Array(n); dadz[h] = new Array(n);
+        const dzh = new Array(n);
+        for (let j = 0; j < n; j++) {
+          let s = 0;
+          for (let k = 0; k < dz[l].length; k++) s += W[l][k][j] * dz[l][k];
+          da[h][j] = s;
+          dadz[h][j] = act.df(c.z[h][j]);
+          dzh[j] = s * dadz[h][j];
+        }
+        dz[h] = dzh;
       }
-      const dW1 = dz1.map(d => [d * c.x[0], d * c.x[1]]);
-      return { t, dz2, dW2, db2, da1, dadz, dz1, dW1, db1: dz1.slice() };
+      return { t, dz, dW, db, da, dadz };
     }
 
     trainEpoch(points, { lr, optimizer = 'adam', batchSize = 10 }) {
@@ -106,17 +131,15 @@
       for (let s = 0; s < idx.length; s += batchSize) {
         const g = this._zerosLike();
         const end = Math.min(idx.length, s + batchSize);
-        for (let b = s; b < end; b++) {
-          const p = points[idx[b]];
+        for (let bi = s; bi < end; bi++) {
+          const p = points[idx[bi]];
           const gr = this.backward(this.forward(p.x, p.y), p.label);
-          for (let j = 0; j < this.H; j++) {
-            g.W1[j][0] += gr.dW1[j][0];
-            g.W1[j][1] += gr.dW1[j][1];
-            g.b1[j] += gr.db1[j];
-          }
-          for (let k = 0; k < this.O; k++) {
-            g.b2[k] += gr.db2[k];
-            for (let j = 0; j < this.H; j++) g.W2[k][j] += gr.dW2[k][j];
+          for (let l = 0; l <= this.L; l++) {
+            const GW = g.W[l], Gb = g.b[l], dW = gr.dW[l], db = gr.db[l];
+            for (let j = 0; j < GW.length; j++) {
+              Gb[j] += db[j];
+              for (let i = 0; i < GW[j].length; i++) GW[j][i] += dW[j][i];
+            }
           }
         }
         this.applyGrads(g, 1 / (end - s), lr, optimizer);
@@ -139,10 +162,10 @@
           }
         }
       };
-      for (let j = 0; j < this.H; j++) upd(this.W1[j], g.W1[j], this.m.W1[j], this.v.W1[j]);
-      upd(this.b1, g.b1, this.m.b1, this.v.b1);
-      for (let k = 0; k < this.O; k++) upd(this.W2[k], g.W2[k], this.m.W2[k], this.v.W2[k]);
-      upd(this.b2, g.b2, this.m.b2, this.v.b2);
+      for (let l = 0; l <= this.L; l++) {
+        for (let j = 0; j < this.W[l].length; j++) upd(this.W[l][j], g.W[l][j], this.m.W[l][j], this.v.W[l][j]);
+        upd(this.b[l], g.b[l], this.m.b[l], this.v.b[l]);
+      }
     }
 
     evaluate(points) {
@@ -156,10 +179,10 @@
       return { loss: loss / points.length, acc: correct / points.length };
     }
 
-    /** Evaluate an R x R grid over [-ext, ext]^2 (row 0 = top). */
+    /** Evaluate an R x R grid over [-ext, ext]^2 (row 0 = top). hidden[l] holds hidden layer l's activations. */
     evalGrid(R, ext) {
-      const { H, K } = this;
-      const hidden = new Float32Array(R * R * H);
+      const { H, K, L } = this;
+      const hidden = Array.from({ length: L }, () => new Float32Array(R * R * H));
       const probs = new Float32Array(R * R * K);
       const step = (2 * ext) / R;
       for (let r = 0; r < R; r++) {
@@ -168,12 +191,12 @@
           const x = -ext + (c + 0.5) * step;
           const cache = this.forward(x, y);
           const idx = r * R + c;
-          for (let j = 0; j < H; j++) hidden[idx * H + j] = cache.a1[j];
+          for (let l = 0; l < L; l++) for (let j = 0; j < H; j++) hidden[l][idx * H + j] = cache.a[l][j];
           const p = this.probs(cache);
           for (let k = 0; k < K; k++) probs[idx * K + k] = p[k];
         }
       }
-      return { R, ext, H, K, hidden, probs };
+      return { R, ext, H, K, L, hidden, probs };
     }
   }
 
@@ -182,33 +205,31 @@
     const rows = [];
     for (const act of Activations.list) {
       for (const K of [2, 3]) {
-        const net = new Net({ hidden: 4, classes: K, act, seed: 11 });
-        net.b1 = net.b1.map((_, j) => 0.1 * (j - 1.5) + 0.03);
-        net.b2 = net.b2.map((_, k) => 0.05 * (k + 1));
-        const x1 = 0.37, x2 = -0.62, label = K === 3 ? 2 : 1;
-        const g = net.backward(net.forward(x1, x2), label);
-        const L = () => net.loss(net.forward(x1, x2), label);
-        const h = 1e-5;
-        let maxRel = 0;
-        const check = (arr, i, analytic) => {
-          const o = arr[i];
-          arr[i] = o + h; const lp = L();
-          arr[i] = o - h; const lm = L();
-          arr[i] = o;
-          const num = (lp - lm) / (2 * h);
-          const rel = Math.abs(analytic - num) / Math.max(1e-8, Math.abs(analytic) + Math.abs(num));
-          if (rel > maxRel) maxRel = rel;
-        };
-        for (let j = 0; j < net.H; j++) {
-          check(net.W1[j], 0, g.dW1[j][0]);
-          check(net.W1[j], 1, g.dW1[j][1]);
-          check(net.b1, j, g.db1[j]);
+        for (const layers of [1, 3]) {
+          const net = new Net({ hidden: 4, layers, classes: K, act, seed: 11 });
+          net.b.forEach(v => v.forEach((_, j) => { v[j] = 0.1 * (j - 1.5) + 0.03; }));
+          const x1 = 0.37, x2 = -0.62, label = K === 3 ? 2 : 1;
+          const g = net.backward(net.forward(x1, x2), label);
+          const Lf = () => net.loss(net.forward(x1, x2), label);
+          const h = 1e-5;
+          let maxRel = 0;
+          const check = (arr, i, analytic) => {
+            const o = arr[i];
+            arr[i] = o + h; const lp = Lf();
+            arr[i] = o - h; const lm = Lf();
+            arr[i] = o;
+            const num = (lp - lm) / (2 * h);
+            const rel = Math.abs(analytic - num) / Math.max(1e-8, Math.abs(analytic) + Math.abs(num));
+            if (rel > maxRel) maxRel = rel;
+          };
+          for (let l = 0; l <= net.L; l++) {
+            for (let j = 0; j < net.W[l].length; j++) {
+              for (let i = 0; i < net.W[l][j].length; i++) check(net.W[l][j], i, g.dW[l][j][i]);
+              check(net.b[l], j, g.db[l][j]);
+            }
+          }
+          rows.push({ activation: act.name, classes: K, layers, output: net.outMode, maxRelError: +maxRel.toExponential(2), pass: maxRel < 1e-5 });
         }
-        for (let k = 0; k < net.O; k++) {
-          for (let j = 0; j < net.H; j++) check(net.W2[k], j, g.dW2[k][j]);
-          check(net.b2, k, g.db2[k]);
-        }
-        rows.push({ activation: act.name, classes: K, output: net.outMode, maxRelError: +maxRel.toExponential(2), pass: maxRel < 1e-5 });
       }
     }
     if (verbose && typeof console !== 'undefined' && console.table) console.table(rows);
