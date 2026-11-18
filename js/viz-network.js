@@ -119,7 +119,7 @@
       const avail = Hh - top - bottom, mid = top + avail / 2;
       const spacing = avail / Math.max(this.cfg.H, this.cfg.O);
       const size = Math.min(42, Math.max(14, spacing - 5), W * 0.1);
-      this.root.style.setProperty("--node-size", `${size}px`);
+      this.root.style.setProperty('--node-size', `${size}px`);
       const xs = { in: W * 0.08, hid: W * 0.36, out: W * 0.65, loss: W * 0.93 };
       for (const g of ['in', 'hid', 'out', 'loss']) {
         const list = this.cols[g], n = list.length;
@@ -132,9 +132,9 @@
         });
         this.labels[g].style.left = `${xs[g]}px`;
       }
+      const radius = size / 2;
       for (const e of this.edges.values()) {
         const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
-        const radius = size / 2;
         const x1 = a.x + radius, y1 = a.y, x2 = b.x - radius, y2 = b.y;
         const mx = (x1 + x2) / 2;
         const dAttr = `M${x1.toFixed(1)},${y1.toFixed(1)} C${mx.toFixed(1)},${y1.toFixed(1)} ${mx.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;

@@ -1,4 +1,5 @@
 /* App state, UI wiring, and the training loop. */
+import { wireCalculusDialog } from './calculus.js';
 (function () {
   'use strict';
 
@@ -15,7 +16,7 @@
 
   const state = {
     dsId: 'circle', noise: 0.1, seed: 1, initSeed: 1,
-    H: 4, actId: 'tanh', lr: 0.03, optimizer: 'adam',
+    H: 1, actId: 'relu', lr: 0.03, optimizer: 'adam',
     playing: false, epoch: 0, showTest: true,
     mode: 'formatted', step: 0,
   };
@@ -125,7 +126,6 @@
     drawThumbs();
     sample = randomTrainPoint();
     if (datasetChanged || !net) {
-      state.step = Math.min(state.step, 11);
       resetNet();
     } else {
       recordMetrics(true);
@@ -285,7 +285,7 @@
     const key = `${state.mode}|${s.blocks.join('§')}`;
     if (force || key !== lastEqKey) {
       lastEqKey = key;
-      if (force) $("#equationBody").scrollTop = 0;
+      if (force) $('#equationBody').scrollTo(0, 0);
       if (force) $("#equationBody").scrollTop = 0;
       const eq = $('#stepEq');
       eq.innerHTML = '';
@@ -441,6 +441,7 @@
     });
     $('#prevStep').addEventListener('click', () => goStep(state.step - 1));
     $('#nextStep').addEventListener('click', () => goStep(state.step + 1));
+    wireCalculusDialog();
 
     const activationChip = $('#activationChip');
     const activationDialog = $('#activationDialog');
@@ -463,7 +464,8 @@
     }
 
     document.addEventListener('keydown', e => {
-      if (activationDialog.open || e.target.closest('.equation-body')) return;
+      if (e.target.closest('dialog') || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target.closest('.equation-body') && (e.key.startsWith('Arrow') || e.key === ' ')) return;
       const timelineStep = e.target.closest('.step-item');
       if (timelineStep && ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
         const i = +timelineStep.dataset.i;
@@ -480,7 +482,7 @@
         return;
       }
       const tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       if (e.key === ' ' && tag !== 'BUTTON') { e.preventDefault(); setPlaying(!state.playing); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); goStep(state.step + 1); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); goStep(state.step - 1); }
@@ -502,8 +504,8 @@
     if (Activations.list.some(a => a.id === q.get('act'))) state.actId = q.get('act');
     const h = parseInt(q.get('h'), 10);
     if (h >= MIN_HIDDEN && h <= MAX_HIDDEN) state.H = h;
-    const st = parseInt(q.get('step'), 10);
-    if (st >= 1 && st <= 12) state.step = st - 1;
+    const step = Number(q.get('step'));
+    if (Number.isInteger(step) && step >= 1 && step <= 12) state.step = step - 1;
     if (q.get('mode') === 'symbolic' || q.get('mode') === 'formatted') state.mode = q.get('mode');
     return Math.min(2000, Math.max(0, parseInt(q.get('epochs'), 10) || 0));
   }

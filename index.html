@@ -34,13 +34,10 @@
         </div>
       </div>
       <div class="header-actions">
-        <button id="activationChip" class="text-btn activation-chip" aria-haspopup="dialog" aria-controls="activationDialog">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h3c7 0 5-12 12-12h3"/></svg>
-          <span>Hidden activation <strong id="activationName"></strong></span>
-        </button>
+        <button id="openCalculus" class="text-btn calculus-chip" type="button" aria-haspopup="dialog" aria-controls="calculusDialog">Calculus intro</button>
         <button id="themeToggle" class="icon-btn" title="Toggle light / dark" aria-label="Toggle light or dark theme">
-        <svg class="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
-        <svg class="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+          <svg class="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
+          <svg class="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
         </button>
       </div>
     </header>
@@ -73,13 +70,19 @@
           <option value="sgd">SGD</option>
         </select>
       </div>
-      <div class="ctrl">
-        <span class="ctrl-label">Hidden neurons</span>
-        <div class="stepper">
-          <button id="hMinus" aria-label="Fewer hidden neurons">−</button>
-          <span id="hVal" class="mono">4</span>
-          <button id="hPlus" aria-label="More hidden neurons">+</button>
+      <div class="hidden-controls">
+        <div class="ctrl">
+          <span class="ctrl-label">Hidden neurons</span>
+          <div class="stepper">
+            <button id="hMinus" aria-label="Fewer hidden neurons">−</button>
+            <span id="hVal" class="mono">1</span>
+            <button id="hPlus" aria-label="More hidden neurons">+</button>
+          </div>
         </div>
+        <button id="activationChip" class="text-btn activation-chip" type="button" aria-haspopup="dialog" aria-controls="activationDialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h3c7 0 5-12 12-12h3"/></svg>
+          <span>Hidden activation <strong id="activationName">ReLU</strong></span>
+        </button>
       </div>
       <div class="ctrl ctrl-out">
         <span class="ctrl-label">Output layer <span class="muted">(set by dataset)</span></span>
@@ -144,14 +147,12 @@
       </section>
       <section class="card walkthrough" aria-labelledby="walkTitle">
         <div class="walk-head">
-          <div>
-            <h2 id="walkTitle">Equation walkthrough</h2>
-          </div>
+          <h2 id="walkTitle">Equation walkthrough</h2>
           <div class="walk-tools">
             <div id="sampleChip" class="sample-chip"></div>
-            <button id="randSample" class="text-btn">
+            <button id="randSample" class="text-btn" title="Random sample">
               <svg viewBox="0 0 24 24"><path d="M4 7h3.5c4.5 0 4.5 10 9 10H20"/><path d="M4 17h3.5c1.6 0 2.6-1.3 3.4-3M13.1 10c.8-1.7 1.8-3 3.4-3H20"/><path d="M17.5 4.5 20 7l-2.5 2.5M17.5 14.5 20 17l-2.5 2.5"/></svg>
-              Random sample
+              <span>Random sample</span>
             </button>
             <div class="seg" id="modeSeg" role="tablist" aria-label="Equation style">
               <button data-mode="symbolic" role="tab">Symbolic</button>
@@ -165,19 +166,32 @@
           <p id="stepNote" class="step-note"></p>
         </div>
         <div class="step-foot">
-            <div id="eqLegend" class="eq-legend">
-              <span class="eql eql-a">values</span>
-              <span class="eql eql-w">parameters</span>
-              <span class="eql eql-g">gradients</span>
-            </div>
-            <div class="step-nav">
-              <button id="prevStep" class="nav-btn">← Prev</button>
-              <button id="nextStep" class="nav-btn primary">Next →</button>
-            </div>
+          <div id="eqLegend" class="eq-legend">
+            <span class="eql eql-a">values</span>
+            <span class="eql eql-w">parameters</span>
+            <span class="eql eql-g">gradients</span>
+          </div>
+          <div class="step-nav">
+            <button id="prevStep" class="nav-btn">← Prev</button>
+            <button id="nextStep" class="nav-btn primary">Next →</button>
+          </div>
         </div>
       </section>
     </main>
   </div>
+
+    <dialog id="calculusDialog" class="card calculus-dialog" aria-labelledby="calculusTitle">
+      <div class="card-head">
+        <h2 id="calculusTitle">Calculus intro</h2>
+        <form method="dialog"><button class="text-btn">Close</button></form>
+      </div>
+      <h3 id="calculusStepTitle" tabindex="-1"></h3>
+      <div id="calculusLesson"></div>
+      <div class="step-nav">
+        <button id="calculusPrev" class="nav-btn" type="button">Previous</button>
+        <button id="calculusNext" class="nav-btn primary" type="button">Next</button>
+      </div>
+    </dialog>
 
     <dialog id="activationDialog" class="card activation-dialog" aria-labelledby="actTitle">
       <div class="card-head">
