@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8">
+<script>
+const [width,height] = location.search.slice(1).split("x");
+const frame = document.createElement("iframe");
+frame.style.cssText = "display:block;border:0";
+frame.width = width;
+frame.height = height;
+frame.src = "./nnx-verify.local.html";
+document.documentElement.append(frame);
+</script>

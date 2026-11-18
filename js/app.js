@@ -1,0 +1,531 @@
+/* App state, UI wiring, and the training loop. */
+(function () {
+  'use strict';
+
+  const $ = s => document.querySelector(s);
+  const EXT = Datasets.EXTENT;
+  const GRID_R = 64;
+  const MIN_HIDDEN = 1;
+  const MAX_HIDDEN = 8;
+  const CLASS_NAMES = ['orange', 'blue', 'green'];
+  const LRS = [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1];
+  const SUBS = '₀₁₂₃₄₅₆₇₈₉';
+  const sub = n => String(n).split('').map(d => SUBS[+d]).join('');
+  const fmt = (v, d = 3) => (Math.abs(v) < 0.5 * Math.pow(10, -d) ? 0 : v).toFixed(d).replace('-', '−');
+
+  const state = {
+    dsId: 'circle', noise: 0.1, seed: 1, initSeed: 1,
+    H: 4, actId: 'tanh', lr: 0.03, optimizer: 'adam',
+    playing: false, epoch: 0, showTest: true,
+    mode: 'formatted', step: 0,
+  };
+
+  let data, train, test, net, grid, pal, sample, cur, steps = [];
+  let history = { train: [], test: [] };
+  let lastEqKey = '', lastStepIdx = -1, stepListSig = '';
+
+  /* ---------------- KaTeX helper ---------------- */
+  function tex(el, s, display = true) {
+    if (window.katex) {
+      try {
+        katex.render(s, el, {
+          displayMode: display, throwOnError: false, strict: 'ignore',
+          trust: ctx => ctx.command === '\\htmlClass',
+        });
+        return;
+      } catch (e) { /* fall through */ }
+    }
+    el.textContent = s;
+    el.classList.add('eq-fallback');
+  }
+
+  /* ---------------- visual components ---------------- */
+  const boundary = new BoundaryViz($('#boundary'), {
+    ext: EXT,
+    onPick: p => { sample = p; renderWalk(true); drawBoundary(); },
+  });
+  const netViz = new NetworkViz($('#network'), { info: nodeInfo });
+
+  /* ---------------- dataset grid ---------------- */
+  const thumbData = {};
+  function buildDatasetGrid() {
+    const gridEl = $('#dsGrid');
+    gridEl.innerHTML = '';
+    for (const d of Datasets.list) {
+      const b = document.createElement('button');
+      b.className = 'ds-item';
+      b.dataset.id = d.id;
+      b.setAttribute('role', 'radio');
+      b.title = `${d.name} · ${d.classes} classes`;
+      const dots = Array.from({ length: d.classes }, (_, k) => `<i style="background:var(--c${k})"></i>`).join('');
+      b.innerHTML = `<div class="ds-thumb"><canvas></canvas><span class="ds-badge">${dots}</span></div><span>${d.name}</span>`;
+      b.addEventListener('click', () => {
+        if (state.dsId === d.id) return;
+        state.dsId = d.id;
+        loadData(true);
+      });
+      gridEl.appendChild(b);
+      thumbData[d.id] = Datasets.generate(d.id, { n: 220, noise: 0.05, seed: 7 }).points;
+    }
+    drawThumbs();
+  }
+  function drawThumbs() {
+    document.querySelectorAll('.ds-item').forEach(b => {
+      Draw.thumb(b.querySelector('canvas'), thumbData[b.dataset.id], pal, EXT);
+      const on = b.dataset.id === state.dsId;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on);
+    });
+  }
+
+  /* ---------------- activation dialog ---------------- */
+  function buildActPills() {
+    const wrap = $('#actPills');
+    wrap.innerHTML = '';
+    for (const a of Activations.list) {
+      const b = document.createElement('button');
+      b.className = 'pill';
+      b.dataset.id = a.id;
+      b.setAttribute('role', 'radio');
+      b.textContent = a.name;
+      b.addEventListener('click', () => {
+        if (state.actId === a.id) return;
+        state.actId = a.id;
+        updateActivation();
+        resetNet();
+      });
+      wrap.appendChild(b);
+    }
+  }
+  function updateActivation() {
+    const act = Activations.get(state.actId);
+    $('#activationName').textContent = act.name;
+    if (!$('#activationDialog').open) return;
+    document.querySelectorAll('#actPills .pill').forEach(b => {
+      const on = b.dataset.id === act.id;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on);
+    });
+    Draw.activation($('#actPlot'), act, pal);
+    const t = $('#actTex');
+    t.innerHTML = '<div></div><div></div>';
+    tex(t.children[0], `f(z) = ${act.texF}`);
+    tex(t.children[1], `f'(z) = \\frac{\\partial a}{\\partial z} = ${act.texDf}`);
+    $('#actBlurb').textContent = act.blurb;
+  }
+
+  /* ---------------- data & network lifecycle ---------------- */
+  function loadData(datasetChanged) {
+    data = Datasets.generate(state.dsId, { n: 300, noise: state.noise, seed: state.seed });
+    train = data.points.filter(p => !p.test);
+    test = data.points.filter(p => p.test);
+    $('#dsInfo').textContent = `${train.length} train · ${test.length} test`;
+    $('#legendClasses').innerHTML = Array.from({ length: data.classes }, (_, k) =>
+      `<span><i style="background:var(--c${k})"></i>${CLASS_NAMES[k]}</span>`).join('');
+    drawThumbs();
+    sample = randomTrainPoint();
+    if (datasetChanged || !net) {
+      state.step = Math.min(state.step, 11);
+      resetNet();
+    } else {
+      recordMetrics(true);
+      refreshVisuals();
+      renderWalk(true);
+    }
+  }
+
+  function resetNet() {
+    const act = Activations.get(state.actId);
+    net = new NN.Net({ hidden: state.H, classes: data.classes, act, seed: state.initSeed * 7919 + state.H * 31 });
+    state.epoch = 0;
+    history = { train: [], test: [] };
+    netViz.build({ H: net.H, O: net.O, K: net.K, actName: act.name, outMode: net.outMode });
+    updateOutChip();
+    $('#hVal').textContent = state.H;
+    $('#hMinus').disabled = state.H <= MIN_HIDDEN;
+    $('#hPlus').disabled = state.H >= MAX_HIDDEN;
+    recordMetrics(true);
+    refreshVisuals();
+    renderWalk(true);
+  }
+
+  function updateOutChip() {
+    const sig = net.outMode === 'sigmoid';
+    const dots = Array.from({ length: net.K }, (_, k) => `<i style="background:var(--c${k})"></i>`).join('');
+    $('#outChip').innerHTML = `<span class="dots">${dots}</span><b>${net.O} neuron${net.O > 1 ? 's' : ''}</b> · ${sig ? 'sigmoid · binary cross-entropy' : 'softmax · cross-entropy'}`;
+  }
+
+  function randomTrainPoint() {
+    const pool = train.length ? train : data.points;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  /* ---------------- training ---------------- */
+  function recordMetrics(resetOnly) {
+    const tr = net.evaluate(train), te = net.evaluate(test);
+    if (!resetOnly || history.train.length === 0) {
+      history.train.push(tr.loss);
+      history.test.push(te.loss);
+      if (history.train.length > 500) { history.train.shift(); history.test.shift(); }
+    }
+    $('#mTrainLoss').textContent = fmt(tr.loss);
+    $('#mTestLoss').textContent = fmt(te.loss);
+    $('#mTrainAcc').textContent = `${(tr.acc * 100).toFixed(1)}%`;
+    $('#mTestAcc').textContent = `${(te.acc * 100).toFixed(1)}%`;
+  }
+
+  function trainOneEpoch() {
+    net.trainEpoch(train, { lr: state.lr, optimizer: state.optimizer, batchSize: 10 });
+    state.epoch++;
+    recordMetrics();
+  }
+
+  function drawBoundary() {
+    boundary.update({ grid, points: data.points, selected: sample, showTest: state.showTest, pal });
+  }
+
+  function refreshVisuals() {
+    grid = net.evalGrid(GRID_R, EXT);
+    drawBoundary();
+    netViz.updateWeights(net);
+    netViz.drawNeurons(grid, pal);
+    Draw.sparkline($('#spark'), [
+      { data: history.train, color: Palette.css(pal.text, 0.85) },
+      { data: history.test, color: Palette.css(pal.muted, 0.9), dash: true },
+    ], pal);
+    $('#epochVal').textContent = state.epoch.toLocaleString();
+  }
+
+  function setPlaying(on) {
+    state.playing = on;
+    $('#playBtn').classList.toggle('playing', on);
+    $('#playBtn').setAttribute('aria-label', on ? 'Pause training' : 'Start training');
+  }
+
+  let frame = 0;
+  function tick() {
+    if (state.playing) {
+      trainOneEpoch();
+      refreshVisuals();
+      if (++frame % 8 === 0) renderWalk(false);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  /* ---------------- walkthrough ---------------- */
+  function computeSample() {
+    const c = net.forward(sample.x, sample.y);
+    const g = net.backward(c, sample.label);
+    cur = { c, g };
+    steps = Equations.build({
+      net, cache: c, grads: g, label: sample.label, mode: state.mode,
+      lr: state.lr, optimizer: state.optimizer, classNames: CLASS_NAMES,
+    });
+  }
+
+  function renderTimeline() {
+    const sig = JSON.stringify(steps.map(({ phase, title }) => [phase, title]));
+    const list = $('#stepList');
+    if (sig !== stepListSig) {
+      const focusedIndex = list.contains(document.activeElement) ? document.activeElement.dataset.i : null;
+      stepListSig = sig;
+      list.replaceChildren();
+      let phase, track;
+      steps.forEach((step, i) => {
+        if (step.phase !== phase) {
+          phase = step.phase;
+          const row = document.createElement('div');
+          row.className = `timeline-row ${phase}`;
+          const label = document.createElement('span');
+          label.className = 'timeline-label';
+          label.innerHTML = phase === 'fwd'
+            ? 'Forward pass <span aria-hidden="true">→</span>'
+            : 'Backward pass <span aria-hidden="true">←</span>';
+          track = document.createElement('div');
+          track.className = 'timeline-track';
+          row.append(label, track);
+          list.append(row);
+        }
+        const button = document.createElement('button');
+        button.className = 'step-item';
+        button.dataset.i = i;
+        button.textContent = i + 1;
+        button.title = step.title;
+        button.setAttribute('aria-label', `Step ${i + 1}. ${step.title}`);
+        button.addEventListener('click', () => goStep(i));
+        track.append(button);
+      });
+      if (focusedIndex != null) list.querySelectorAll('.step-item')[focusedIndex]?.focus();
+    }
+    list.querySelectorAll('.step-item').forEach((button, i) => {
+      if (i === state.step) button.setAttribute('aria-current', 'step');
+      else button.removeAttribute('aria-current');
+    });
+  }
+
+  function nodeValues(step) {
+    const out = {};
+    const map = { in: i => `in${i}`, hid: j => `h${j}`, out: k => `o${k}`, loss: () => 'loss' };
+    for (const grp in step.vals) {
+      const v = step.vals[grp];
+      v.arr.forEach((x, i) => { out[map[grp](i)] = { text: fmt(x, 2), label: v.label, kind: v.kind }; });
+    }
+    return out;
+  }
+
+  function renderWalk(force) {
+    if (!sample || !net) return;
+    computeSample();
+    if (state.step >= steps.length) state.step = steps.length - 1;
+    renderTimeline();
+    const s = steps[state.step];
+
+    $('#stepTitle').textContent = s.title;
+
+    const key = `${state.mode}|${s.blocks.join('§')}`;
+    if (force || key !== lastEqKey) {
+      lastEqKey = key;
+      if (force) $("#equationBody").scrollTop = 0;
+      if (force) $("#equationBody").scrollTop = 0;
+      const eq = $('#stepEq');
+      eq.innerHTML = '';
+      for (const b of s.blocks) {
+        const d = document.createElement('div');
+        d.className = 'eq-block';
+        eq.appendChild(d);
+        tex(d, b);
+      }
+      if (lastStepIdx !== state.step) {
+        eq.classList.remove('anim');
+        void eq.offsetWidth;
+        eq.classList.add('anim');
+      }
+    }
+    lastStepIdx = state.step;
+    $('#stepNote').textContent = s.note;
+    $('#eqLegend').classList.toggle('hidden', state.mode !== 'formatted');
+    $('#prevStep').disabled = state.step === 0;
+    $('#nextStep').disabled = state.step === steps.length - 1;
+
+    netViz.highlight(s.hl);
+    netViz.setValues(nodeValues(s));
+    renderSampleChip();
+  }
+
+  function renderSampleChip() {
+    const pred = net.predict(cur.c);
+    const ok = pred === sample.label;
+    $('#sampleChip').innerHTML =
+      `<i style="background:var(--c${sample.label})"></i>` +
+      `<span>Sample #${sample.id}${sample.test ? ' (test)' : ''}</span>` +
+      `<span class="mono">(${fmt(sample.x, 2)}, ${fmt(sample.y, 2)})</span>` +
+      `<span class="${ok ? 'ok' : 'bad'}">${ok ? '✓ correct' : `✗ predicted ${CLASS_NAMES[pred]}`}</span>`;
+  }
+
+  function goStep(i) {
+    state.step = Math.max(0, Math.min(steps.length - 1, i));
+    renderWalk(true);
+  }
+
+  /* ---------------- tooltips ---------------- */
+  function nodeInfo(id) {
+    if (!cur) return null;
+    const { c, g } = cur;
+    const f = v => fmt(v, 3);
+    const subt = 'for the selected sample';
+    if (id.startsWith('in')) {
+      const i = +id.slice(2);
+      return { title: `x${sub(i + 1)} · input`, sub: subt, rows: [['value', f(c.x[i])]] };
+    }
+    if (id.startsWith('h')) {
+      const j = +id.slice(1);
+      return {
+        title: `h${sub(j + 1)} · hidden (${net.act.name})`, sub: subt,
+        rows: [['bias b', f(net.b1[j])], ['z', f(c.z1[j])], ['a = f(z)', f(c.a1[j])], ["f′(z)", f(g.dadz[j])], ['∂L/∂a', f(g.da1[j])], ['δ = ∂L/∂z', f(g.dz1[j])]],
+      };
+    }
+    if (id.startsWith('o')) {
+      const k = +id.slice(1);
+      const name = net.O === 1 ? `P(${CLASS_NAMES[1]})` : CLASS_NAMES[k];
+      return {
+        title: `${net.O === 1 ? 'ŷ' : `ŷ${sub(k + 1)}`} · output (${net.outMode})`, sub: `${name}, ${subt}`,
+        rows: [['bias b', f(net.b2[k])], ['z', f(c.z2[k])], ['ŷ', f(c.yhat[k])], ['target y', String(g.t[k])], ['δ = ŷ − y', f(g.dz2[k])]],
+      };
+    }
+    if (id === 'loss') {
+      return {
+        title: `Loss · ${net.outMode === 'sigmoid' ? 'binary cross-entropy' : 'cross-entropy'}`, sub: subt,
+        rows: [['L', f(net.loss(c, sample.label))], ['true class', CLASS_NAMES[sample.label]], ['predicted', CLASS_NAMES[net.predict(c)]]],
+      };
+    }
+    let m = id.match(/^e1-(\d+)-(\d+)$/);
+    if (m) {
+      const j = +m[1], i = +m[2];
+      return { title: `w⁽¹⁾ ${j + 1},${i + 1} : x${sub(i + 1)} → h${sub(j + 1)}`, sub: subt, rows: [['weight', f(net.W1[j][i])], ['∂L/∂w', f(g.dW1[j][i])]] };
+    }
+    m = id.match(/^e2-(\d+)-(\d+)$/);
+    if (m) {
+      const k = +m[1], j = +m[2];
+      return { title: `w⁽²⁾ ${k + 1},${j + 1} : h${sub(j + 1)} → ŷ${net.O > 1 ? sub(k + 1) : ''}`, sub: subt, rows: [['weight', f(net.W2[k][j])], ['∂L/∂w', f(g.dW2[k][j])]] };
+    }
+    return null;
+  }
+
+  /* ---------------- theme ---------------- */
+  function effectiveTheme() {
+    const t = document.documentElement.getAttribute('data-theme');
+    if (t) return t;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function onThemeChange() {
+    pal = Palette.read();
+    drawThumbs();
+    updateActivation();
+    refreshVisuals();
+  }
+
+  /* ---------------- controls ---------------- */
+  function wireControls() {
+    const lrSel = $('#lrSel');
+    lrSel.innerHTML = LRS.map(v => `<option value="${v}">${v}</option>`).join('');
+    lrSel.value = String(state.lr);
+    lrSel.addEventListener('change', () => { state.lr = +lrSel.value; renderWalk(false); });
+
+    const optSel = $('#optSel');
+    optSel.value = state.optimizer;
+    optSel.addEventListener('change', () => {
+      state.optimizer = optSel.value;
+      // nudge to a sensible learning rate for each optimizer
+      if (state.optimizer === 'sgd' && state.lr < 0.1) state.lr = 0.3;
+      if (state.optimizer === 'adam' && state.lr > 0.1) state.lr = 0.03;
+      lrSel.value = String(state.lr);
+      renderWalk(false);
+    });
+
+    $('#playBtn').addEventListener('click', () => setPlaying(!state.playing));
+    $('#stepBtn').addEventListener('click', () => { setPlaying(false); trainOneEpoch(); refreshVisuals(); renderWalk(false); });
+    $('#resetBtn').addEventListener('click', () => { state.initSeed++; resetNet(); });
+
+    $('#hMinus').addEventListener('click', () => { if (state.H > MIN_HIDDEN) { state.H--; resetNet(); } });
+    $('#hPlus').addEventListener('click', () => { if (state.H < MAX_HIDDEN) { state.H++; resetNet(); } });
+
+    const noise = $('#noise');
+    noise.addEventListener('input', () => {
+      state.noise = +noise.value / 100;
+      $('#noiseVal').textContent = `${noise.value}%`;
+      loadData(false);
+    });
+    $('#regenBtn').addEventListener('click', () => { state.seed++; loadData(false); });
+    $('#showTest').addEventListener('change', e => { state.showTest = e.target.checked; drawBoundary(); });
+
+    $('#randSample').addEventListener('click', () => {
+      const pool = data.points.filter(p => state.showTest || !p.test);
+      let p;
+      do { p = pool[Math.floor(Math.random() * pool.length)]; } while (pool.length > 1 && p === sample);
+      sample = p;
+      renderWalk(true);
+      drawBoundary();
+    });
+
+    document.querySelectorAll('#modeSeg button').forEach(b => {
+      b.classList.toggle('on', b.dataset.mode === state.mode);
+      b.setAttribute('aria-selected', b.dataset.mode === state.mode);
+      b.addEventListener('click', () => {
+        state.mode = b.dataset.mode;
+        document.querySelectorAll('#modeSeg button').forEach(x => {
+          x.classList.toggle('on', x === b);
+          x.setAttribute('aria-selected', x === b);
+        });
+        renderWalk(true);
+      });
+    });
+    $('#prevStep').addEventListener('click', () => goStep(state.step - 1));
+    $('#nextStep').addEventListener('click', () => goStep(state.step + 1));
+
+    const activationChip = $('#activationChip');
+    const activationDialog = $('#activationDialog');
+    activationChip.addEventListener('click', () => {
+      activationDialog.showModal();
+      updateActivation();
+    });
+    activationDialog.addEventListener('close', () => activationChip.focus());
+
+    $('#themeToggle').addEventListener('click', () => {
+      const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('nnx-theme', next); } catch (e) { /* ignore */ }
+      onThemeChange();
+    });
+    if (window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const h = () => { if (!document.documentElement.getAttribute('data-theme')) onThemeChange(); };
+      if (mq.addEventListener) mq.addEventListener('change', h); else if (mq.addListener) mq.addListener(h);
+    }
+
+    document.addEventListener('keydown', e => {
+      if (activationDialog.open || e.target.closest('.equation-body')) return;
+      const timelineStep = e.target.closest('.step-item');
+      if (timelineStep && ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+        const i = +timelineStep.dataset.i;
+        const forward = steps[i].phase === 'fwd';
+        const next = {
+          ArrowRight: i + (forward ? 1 : -1),
+          ArrowLeft: i + (forward ? -1 : 1),
+          ArrowDown: forward && steps[i + 1]?.phase === 'bwd' ? i + 1 : i,
+          ArrowUp: !forward && steps[i - 1]?.phase === 'fwd' ? i - 1 : i,
+        }[e.key];
+        e.preventDefault();
+        goStep(next);
+        $('#stepList').querySelectorAll('.step-item')[state.step].focus();
+        return;
+      }
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === ' ' && tag !== 'BUTTON') { e.preventDefault(); setPlaying(!state.playing); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); goStep(state.step + 1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); goStep(state.step - 1); }
+      else if (e.key === 'r' || e.key === 'R') { state.initSeed++; resetNet(); }
+    });
+
+    let rt;
+    window.addEventListener('resize', () => {
+      clearTimeout(rt);
+      rt = setTimeout(() => { drawThumbs(); updateActivation(); refreshVisuals(); }, 120);
+    });
+  }
+
+  /* ---------------- boot ---------------- */
+  /** Optional deep-link state, e.g. #ds=spiral3&act=relu&h=6&step=10&mode=symbolic&epochs=200 */
+  function readHash() {
+    const q = new URLSearchParams(location.hash.slice(1));
+    if (Datasets.list.some(d => d.id === q.get('ds'))) state.dsId = q.get('ds');
+    if (Activations.list.some(a => a.id === q.get('act'))) state.actId = q.get('act');
+    const h = parseInt(q.get('h'), 10);
+    if (h >= MIN_HIDDEN && h <= MAX_HIDDEN) state.H = h;
+    const st = parseInt(q.get('step'), 10);
+    if (st >= 1 && st <= 12) state.step = st - 1;
+    if (q.get('mode') === 'symbolic' || q.get('mode') === 'formatted') state.mode = q.get('mode');
+    return Math.min(2000, Math.max(0, parseInt(q.get('epochs'), 10) || 0));
+  }
+
+  function init() {
+    const pretrain = readHash();
+    pal = Palette.read();
+    buildDatasetGrid();
+    buildActPills();
+    updateActivation();
+    wireControls();
+    loadData(true);
+    if (pretrain) {
+      for (let e = 0; e < pretrain; e++) trainOneEpoch();
+      refreshVisuals();
+      renderWalk(true);
+    }
+    requestAnimationFrame(tick);
+    // Re-render once web fonts are in so canvas labels use them.
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { updateActivation(); refreshVisuals(); });
+  }
+
+  window.App = { state, get net() { return net; } };
+  init();
+})();
