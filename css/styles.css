@@ -934,11 +934,12 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   overflow-x: auto;
 }
 .full-formula > * { flex: none; }
+.full-formula-rows { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; }
 .formula-term {
   font: inherit; color: inherit; cursor: pointer;
   padding: 4px; background: transparent; border: 1px solid transparent;
   border-block-end-color: var(--accent); border-radius: 4px;
 }
-#fullGradient .formula-term { border-block-end-color: var(--bwd); }
+#fullBackward .formula-term { border-block-end-color: var(--bwd); }
 .formula-term:hover { background: var(--surface); border-color: var(--border); }
 .edge-hit.weight-link { cursor: pointer; }

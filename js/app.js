@@ -719,13 +719,13 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
   const openFullEquation = wireFullEquation({
     tex,
     getSteps: () => steps,
-    goToStep(id, { l, i, j }) {
+    goToStep(id, { l, i, j }, hasRowSelection) {
       const index = steps.findIndex(step => step.id === id);
       const layerKey = l === net.L ? 'out' : l;
       if (id === `dW${l + 1}`) {
         traceSelection.set(`source-${layerKey}`, i);
         traceSelection.set(`neuron-${layerKey}`, j);
-      } else if (id === `dz${l + 1}` || id === `da${l + 1}` || (id === 'dzout' && l === net.L)) {
+      } else if (hasRowSelection || id === `dz${l + 1}` || id === `da${l + 1}` || (id === 'dzout' && l === net.L)) {
         traceSelection.set(`neuron-${layerKey}`, j);
       }
       goStep(index);

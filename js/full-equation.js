@@ -32,7 +32,7 @@ export function backwardTerms({ L, sizes, O }, { l, j, i }) {
     terms.push([weight(n + 1, next, index), `da${n}`]);
     index = next;
   }
-  terms.push([O === 1 ? T`(\hat y-y)` : T`(\hat y_{${index}}-y_{${index}})`, 'dzout']);
+  terms.push([O === 1 ? T`(\hat y-y)` : T`(\hat y_{${index}}-y_{${index}})`, 'dzout', { l: h, j: k }]);
   if (l < L) terms.push([T`\Big]`.repeat(L - l)]);
   terms.push([T`\,\cdot\,`], [
     l === 0 ? T`x_{${i + 1}}` : nodeValue('a', l, i + 1), `dW${layer}`,
@@ -40,51 +40,75 @@ export function backwardTerms({ L, sizes, O }, { l, j, i }) {
   return terms;
 }
 
-export function forwardSampleTerms(net, cache) {
-  const { column, matrix, number } = Equations;
-  const { L, O, W, b } = net;
-  const binary = O === 1;
-  const output = binary ? T`\sigma` : T`\operatorname{softmax}`;
-  const activation = T`\operatorname{${net.act.name.replaceAll(' ', T`\,`)}}`;
-  const terms = [[binary ? T`\hat y\approx` : T`\hat{\mathbf y}\approx`], [output, 'yhat'],
-    [T`\Big[${matrix(W[L])}`, 'zout']];
-  for (let l = L - 1; l >= 0; l--) {
-    terms.push([activation, `a${l + 1}`], [T`\Big(${matrix(W[l])}`, `z${l + 1}`]);
-  }
-  terms.push([column(cache.x), 'input']);
-  for (let l = 0; l < L; l++) {
-    terms.push([T`+${column(b[l])}\Big)`, `z${l + 1}`]);
-  }
-  terms.push([T`+${column(b[L])}\Big]`, 'zout'],
-    [T`\approx ${binary ? number(cache.yhat[0]) : column(cache.yhat)}`]);
-  return terms;
-}
+const factor = value => {
+  const formatted = Equations.number(value);
+  return value < 0 ? T`(${formatted})` : formatted;
+};
+const product = (left, right) => T`${factor(left)}\times${factor(right)}`;
 
-export function backwardSampleTerms(net, cache, grads, { l, j, i }) {
-  const { column, matrix, number } = Equations;
-  const { L, O, W } = net;
-  const factor = value => T`\big(${number(value)}\big)`;
-  const terms = [[T`\dfrac{\partial L}{\partial ${weight(l + 1, j + 1, i + 1)}}\approx`]];
+export function forwardSampleRows(net, cache) {
+  const { number } = Equations;
+  const { L, O, W, b, act } = net;
+  const rows = [[cache.x.map((x, i) => T`x_{${i + 1}}=${number(x)}`).join(T`,\quad `), 'input']];
+  const activation = T`\operatorname{${act.name.replaceAll(' ', T`\,`)}}`;
 
-  if (l < L) {
-    terms.push([factor(grads.dadz[l][j]), `dz${l + 1}`]);
-    const outgoing = W[l + 1].map(row => row[j]);
-    terms.push([outgoing.length === 1 ? factor(outgoing[0]) : matrix([outgoing]), `da${l + 1}`]);
-    for (let h = l + 1; h < L; h++) {
-      const slopes = grads.dadz[h];
-      terms.push([slopes.length === 1 ? factor(slopes[0]) : T`\operatorname{diag}\Big(${column(slopes)}\Big)`, `dz${h + 1}`]);
-      const next = W[h + 1];
-      terms.push([next.length === 1 && slopes.length === 1 ? factor(next[0][0]) : T`{${matrix(next)}}^{\!\top}`, `da${h + 1}`]);
+  for (let l = 0; l <= L; l++) {
+    const inputs = net.input(cache, l);
+    const scoreStep = l === L ? 'zout' : `z${l + 1}`;
+    rows.push(...W[l].map((weights, j) => {
+      const terms = weights.map((w, i) => product(w, inputs[i]));
+      terms.push(product(b[l][j], 1));
+      return [T`${nodeValue('z', l + 1, j + 1)}\approx${terms.join(' + ')}\approx${number(cache.z[l][j])}`, scoreStep, { l, j }];
+    }));
+    if (l < L) {
+      rows.push(...cache.a[l].map((a, j) => [
+        T`${nodeValue('a', l + 1, j + 1)}\approx${activation}(${number(cache.z[l][j])})\approx${number(a)}`,
+        `a${l + 1}`, { l, j },
+      ]));
     }
   }
 
-  const outputIndex = O === 1 ? 0 : j;
-  const residual = l < L && O > 1
-    ? T`\Big(${column(cache.yhat)}-${column(grads.t)}\Big)`
-    : T`\big(${number(cache.yhat[outputIndex])}-${grads.t[outputIndex]}\big)`;
-  terms.push([residual, 'dzout'], [T`\cdot`], [factor(net.input(cache, l)[i]), `dW${l + 1}`],
-    [T`\approx ${number(grads.dW[l][j][i])}`]);
-  return terms;
+  const scores = cache.z[L];
+  if (O === 1) {
+    rows.push([T`\hat y\approx\frac{1}{1+e^{-${factor(scores[0])}}}\approx${number(cache.yhat[0])}`, 'yhat']);
+  } else {
+    const shift = Math.max(...scores);
+    rows.push([T`m\approx\max\{${scores.map(number).join(', ')}\}\approx${number(shift)}`, 'yhat']);
+    const exponentials = scores.map(score => T`e^{${number(score)}-${factor(shift)}}`);
+    rows.push(...cache.yhat.map((p, j) => [
+      T`\hat y_{${j + 1}}\approx\frac{${exponentials[j]}}{${exponentials.join(' + ')}}\approx${number(p)}`,
+      'yhat', { l: L, j },
+    ]));
+  }
+  return rows;
+}
+
+export function backwardSampleRows(net, cache, grads, { l, j, i }) {
+  const { number } = Equations;
+  const { L, W } = net;
+  const rows = [];
+
+  for (let h = L; h >= l; h--) {
+    const destinations = h === l ? [j] : grads.dz[h].map((_, k) => k);
+    for (const k of destinations) {
+      const delta = nodeValue(T`\delta`, h + 1, k + 1);
+      const result = number(grads.dz[h][k]);
+      if (h === L) {
+        rows.push([T`${delta}\approx${number(cache.yhat[k])}-${grads.t[k]}\approx${result}`, 'dzout', { l: h, j: k }]);
+      } else {
+        const contributions = W[h + 1].map((weights, next) => product(weights[k], grads.dz[h + 1][next]));
+        const incoming = T`\frac{\partial L}{\partial ${nodeValue('a', h + 1, k + 1)}}`;
+        rows.push(
+          [T`${incoming}\approx${contributions.join(' + ')}\approx${number(grads.da[h][k])}`, `da${h + 1}`, { l: h, j: k }],
+          [T`${delta}\approx${product(grads.dadz[h][k], grads.da[h][k])}\approx${result}`, `dz${h + 1}`, { l: h, j: k }],
+        );
+      }
+    }
+  }
+
+  const gradient = T`\dfrac{\partial L}{\partial ${weight(l + 1, j + 1, i + 1)}}`;
+  rows.push([T`${gradient}\approx${product(grads.dz[l][j], net.input(cache, l)[i])}\approx${number(grads.dW[l][j][i])}`, `dW${l + 1}`]);
+  return rows;
 }
 
 export function wireFullEquation({ tex, goToStep, getSteps }) {
@@ -98,7 +122,6 @@ export function wireFullEquation({ tex, goToStep, getSteps }) {
   const note = dialog.querySelector('#fullGradientNote');
   const predictionSample = dialog.querySelector('#fullPredictionSample');
   const gradientSample = dialog.querySelector('#fullGradientSample');
-  const sampleNote = dialog.querySelector('#fullGradientSampleNote');
   let net, cache, grads, selectedWeight, trigger, destinationStep;
 
   function setPass(pass, focus = true) {
@@ -114,7 +137,7 @@ export function wireFullEquation({ tex, goToStep, getSteps }) {
 
   function renderTerms(container, terms) {
     const labels = new Map(getSteps().map(({ id, label }) => [id, label]));
-    container.replaceChildren(...terms.map(([math, step]) => {
+    container.replaceChildren(...terms.map(([math, step, selection]) => {
       const element = document.createElement(step ? 'button' : 'span');
       if (step) {
         element.type = 'button';
@@ -123,7 +146,7 @@ export function wireFullEquation({ tex, goToStep, getSteps }) {
         // Keep the math in the accessible name and announce where the button leads.
         element.setAttribute('aria-description', `Open walkthrough step: ${labels.get(step)}`);
         element.addEventListener('click', () => {
-          destinationStep = { step, weight: { ...selectedWeight } };
+          destinationStep = { step, weight: { ...selectedWeight, ...selection }, hasRowSelection: Boolean(selection) };
           dialog.close();
         });
       }
@@ -147,12 +170,8 @@ export function wireFullEquation({ tex, goToStep, getSteps }) {
     note.textContent = hasBranches
       ? 'Each sum adds contributions from the next layer. Select a term to see how that step works.'
       : 'Multiply the factors along this path to get the gradient. Select a term to see how that step works.';
-    sampleNote.hidden = !hasBranches;
-    const hasDiagonal = grads.dadz.slice(selectedWeight.l + 1).some(slopes => slopes.length > 1);
-    sampleNote.textContent = 'Matrix products add the same contributions as the sums above.'
-      + (hasDiagonal ? ' The diag function places the activation slopes on a diagonal.' : '');
     renderTerms(gradient, backwardTerms(net, selectedWeight));
-    renderTerms(gradientSample, backwardSampleTerms(net, cache, grads, selectedWeight));
+    renderTerms(gradientSample, backwardSampleRows(net, cache, grads, selectedWeight));
   }
 
   layerSelect.addEventListener('change', () => {
@@ -181,9 +200,9 @@ export function wireFullEquation({ tex, goToStep, getSteps }) {
 
   dialog.addEventListener('close', () => {
     if (destinationStep) {
-      const { step, weight } = destinationStep;
+      const { step, weight, hasRowSelection } = destinationStep;
       destinationStep = null;
-      goToStep(step, weight);
+      goToStep(step, weight, hasRowSelection);
     } else {
       trigger?.focus();
     }
@@ -200,7 +219,7 @@ export function wireFullEquation({ tex, goToStep, getSteps }) {
     layerSelect.value = selectedWeight.l;
     renderWeightOptions();
     renderTerms(prediction, forwardTerms(net));
-    renderTerms(predictionSample, forwardSampleTerms(net, cache));
+    renderTerms(predictionSample, forwardSampleRows(net, cache));
     renderGradient();
     dialog.showModal();
     dialog.scrollTop = 0;
