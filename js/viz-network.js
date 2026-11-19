@@ -70,17 +70,20 @@
       }
       for (let k = 0; k < cfg.O; k++) this._edge(`l-${k}`, `o${k}`, 'loss', 'el', { k });
 
-      const lab = (title, s) => {
+      // `short` is swapped in by layout() when neighbouring headers would collide.
+      const lab = (title, s, short = s) => {
         const e = el('div', 'layer-label', this.labelLayer);
         el('b', '', e).textContent = title;
-        el('span', '', e).textContent = s;
+        const span = el('span', '', e);
+        span.textContent = s;
+        e._sub = { span, full: s, short };
         return e;
       };
       this.labels = { in: lab('Input', '2') };
       for (let l = 0; l < L; l++) {
-        this.labels[`h${l}`] = lab(L === 1 ? 'Hidden' : `Hidden ${l + 1}`, L > 2 ? `${cfg.H}` : `${cfg.H} · ${cfg.actName}`);
+        this.labels[`h${l}`] = lab(L === 1 ? 'Hidden' : `Hidden ${l + 1}`, `${cfg.H} · ${cfg.actName}`, `${cfg.H}`);
       }
-      this.labels.out = lab('Output', `${cfg.O} · ${cfg.outMode}`);
+      this.labels.out = lab('Output', `${cfg.O} · ${cfg.outMode}`, `${cfg.O}`);
       this.labels.loss = lab('Loss', cfg.outMode === 'sigmoid' ? 'BCE' : 'CE');
 
       this.layout();
@@ -165,6 +168,9 @@
         });
         this.labels[g].style.left = `${xs[g]}px`;
       }
+      this._fitLabels(xs);
+      this._size = size;
+      this._biasSize = biasSize;
       const radius = size / 2;
       for (const e of this.edges.values()) {
         const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
@@ -174,6 +180,83 @@
         e.base.setAttribute('d', dAttr);
         e.pulse.setAttribute('d', dAttr);
         if (e.hit) e.hit.setAttribute('d', dAttr);
+      }
+      this._placeValues();
+    }
+
+    /** Use the short layer subtitles when any two neighbouring headers would touch. */
+    _fitLabels(xs) {
+      const labels = this.colKeys.map(k => this.labels[k]);
+      const set = short => labels.forEach(e => { e._sub.span.textContent = short ? e._sub.short : e._sub.full; });
+      const collides = () => labels.some((e, i) => i > 0 &&
+        xs[this.colKeys[i]] - xs[this.colKeys[i - 1]] < (e.offsetWidth + labels[i - 1].offsetWidth) / 2 + 6);
+      set(false);
+      if (collides()) set(true);
+    }
+
+    /**
+     * Value badges default to the right of their node, but with several hidden layers the
+     * columns are too close for that. Try a few spots per badge and keep the one that
+     * overlaps the least (other badges and nodes count most; crossing an edge is fine).
+     */
+    _placeValues() {
+      const size = this._size;
+      if (!size) return;
+      const W = this.root.clientWidth, Hh = this.root.clientHeight;
+      const s = size / 2, gap = 3, bias = this._biasSize;
+      const obstacles = [];
+      for (const g of this.colKeys) {
+        const label = this.labels[g];
+        obstacles.push({ x: label.offsetLeft - label.offsetWidth / 2, y: label.offsetTop, w: label.offsetWidth, h: label.offsetHeight, k: 4 });
+      }
+      for (const rec of this.nodes.values()) {
+        const id = rec.id;
+        obstacles.push({ id, x: rec.x - s, y: rec.y - s, w: size, h: size, k: 3 });
+        const lab = rec.el.querySelector('.node-label');
+        const lw = lab.offsetWidth, lh = lab.offsetHeight;
+        obstacles.push(rec.group === 'hid'
+          ? { id, x: rec.x - s - 4 - lw, y: rec.y - lh / 2, w: lw, h: lh, k: 3 }
+          : { id, x: rec.x - lw / 2, y: rec.y + s + 5, w: lw, h: lh, k: 3 });
+        if (rec.bias) obstacles.push({ id, x: rec.x - s - 2, y: rec.y + s + 1, w: bias, h: bias, k: 2 });
+      }
+      const overlap = (a, b) =>
+        Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
+        Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+
+      for (const key of this.colKeys) {
+        for (const rec of this.cols[key]) {
+          const badge = rec.val;
+          const shown = badge.classList.contains('show');
+          rec.el.style.zIndex = shown ? 2 : '';
+          if (!shown) continue;
+          const w = badge.offsetWidth, h = badge.offsetHeight, x = rec.x, y = rec.y;
+          const right = { x: x + s + gap, y: y - h / 2 };
+          const above = { x: x - w / 2, y: y - s - gap - h };
+          // A badge may tuck onto its own node's edge to clear the next column's labels.
+          const tucked = [0.25, 0.5].map(f => ({ x: right.x - size * f, y: right.y }));
+          const spots = [
+            ...(rec.group === 'loss' ? [above, right] : [right, ...tucked, above]),
+            { x: x + s * 0.4, y: y - s - gap - h },
+            { x: x - w / 2, y: y + s + gap },
+            { x: x + s * 0.4, y: y + s + gap },
+            { x: x - s - gap - w, y: y - h / 2 },
+          ];
+          let best = null;
+          spots.forEach((p, order) => {
+            const box = { x: p.x, y: p.y, w, h };
+            const inside = { x: 0, y: 0, w: W, h: Hh };
+            let cost = (w * h - overlap(box, inside)) * 4 + order * 0.5;
+            // Pad neighbours by 2px so a badge that merely touches them still looks crowded.
+            for (const o of obstacles) {
+              cost += o.id === rec.id ? overlap(box, o) * 0.5
+                : overlap(box, { x: o.x - 2, y: o.y - 2, w: o.w + 4, h: o.h + 4 }) * o.k;
+            }
+            if (!best || cost < best.cost) best = { ...box, cost };
+          });
+          obstacles.push({ x: best.x, y: best.y, w, h, k: 6 });
+          badge.style.left = `${best.x - (x - s)}px`;
+          badge.style.top = `${best.y - (y - s)}px`;
+        }
       }
     }
 
@@ -255,6 +338,7 @@
           rec.val.className = 'node-val';
         }
       }
+      this._placeValues();
     }
 
     /** spec: {nodeIds, edgeIds, dir: 'fwd'|'bwd'} or null */
