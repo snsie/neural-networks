@@ -34,7 +34,6 @@
       this.tip = el('div', 'netviz-tip', root);
       this.nodes = new Map();
       this.edges = new Map();
-      this.biases = [];
       this.off = document.createElement('canvas');
       new ResizeObserver(() => this.layout()).observe(root);
     }
@@ -45,7 +44,7 @@
       const L = cfg.L || 1;
       this.gEdges.innerHTML = ''; this.gPulse.innerHTML = ''; this.gHit.innerHTML = '';
       this.nodeLayer.innerHTML = ''; this.labelLayer.innerHTML = '';
-      this.nodes.clear(); this.edges.clear(); this.biases = [];
+      this.nodes.clear(); this.edges.clear();
       this._hideTip();
 
       this.colKeys = ['in', ...Array.from({ length: L }, (_, l) => `h${l}`), 'out', 'loss'];
@@ -104,23 +103,16 @@
     }
 
     _bias(l, j, target) {
-      const button = el('button', 'bias-node', this.nodeLayer);
+      const button = el('button', 'bias-node', target.el);
       button.type = 'button';
-      button.textContent = '1';
-      button.setAttribute('aria-label', `Explain bias for ${l === this.cfg.L ? 'output' : `hidden layer ${l + 1},`} neuron ${j + 1}`);
+      button.title = 'Show bias';
+      button.setAttribute('aria-label', `Show bias for ${l === this.cfg.L ? 'output' : `hidden layer ${l + 1},`} neuron ${j + 1}`);
       button.setAttribute('aria-haspopup', 'dialog');
       button.setAttribute('aria-controls', 'biasDialog');
-      const id = `b${l}-${j}`;
-      const bias = { button, target };
-      const open = () => {
+      button.addEventListener('click', () => {
         this._hideTip();
         this.opts.onBias(l, j, button);
-      };
-      button.addEventListener('click', open);
-      const edge = this._edge(id, id, target.id, `b${l}`, { l, j, bias });
-      edge.hit.classList.add('bias-hit');
-      edge.hit.addEventListener('click', open);
-      this.biases.push(bias);
+      });
     }
 
     _edge(id, from, to, group, idx) {
@@ -136,7 +128,6 @@
         rec.hit.addEventListener('mouseleave', () => this._hideTip());
       }
       this.edges.set(id, rec);
-      return rec;
     }
 
     layout() {
@@ -146,11 +137,13 @@
       this.svg.setAttribute('width', W);
       this.svg.setAttribute('height', Hh);
       this.svg.setAttribute('viewBox', `0 0 ${W} ${Hh}`);
-      const top = 53, bottom = 20;
+      const top = 43, bottom = 20;
       const avail = Hh - top - bottom, mid = top + avail / 2;
       const spacing = avail / Math.max(this.cfg.H, this.cfg.O);
       const colGap = (W * 0.85) / (this.colKeys.length - 1);
-      const size = Math.min(42, Math.max(14, spacing - 5), W * 0.1, colGap * 0.45);
+      const biasSize = Math.min(11, Math.max(7, spacing * 0.16), colGap * 0.23);
+      const size = Math.min(42, Math.min(60, spacing) - biasSize - 3, W * 0.1, colGap * 0.45);
+      this.root.style.setProperty('--bias-size', `${biasSize}px`);
       this.root.style.setProperty('--node-size', `${size}px`);
       const xs = Object.fromEntries(this.colKeys.map((k, c) => [k, W * 0.08 + c * colGap]));
       for (const g of this.colKeys) {
@@ -165,18 +158,9 @@
         this.labels[g].style.left = `${xs[g]}px`;
       }
       const radius = size / 2;
-      const biasSize = Math.min(22, colGap * 0.38, Math.max(12, spacing * 0.58));
-      this.root.style.setProperty('--bias-size', `${biasSize}px`);
-      for (const bias of this.biases) {
-        bias.x = bias.target.x - colGap * 0.48;
-        bias.y = bias.target.y - Math.min(30, spacing * 0.48);
-        bias.button.style.left = `${bias.x}px`;
-        bias.button.style.top = `${bias.y}px`;
-      }
       for (const e of this.edges.values()) {
-        const a = e.bias || this.nodes.get(e.from), b = this.nodes.get(e.to);
-        const x1 = a.x + (e.bias ? biasSize / 2 : radius), y1 = a.y;
-        const x2 = b.x - radius, y2 = e.bias ? b.y - radius * 0.65 : b.y;
+        const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
+        const x1 = a.x + radius, y1 = a.y, x2 = b.x - radius, y2 = b.y;
         const mx = (x1 + x2) / 2;
         const dAttr = `M${x1.toFixed(1)},${y1.toFixed(1)} C${mx.toFixed(1)},${y1.toFixed(1)} ${mx.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
         e.base.setAttribute('d', dAttr);
@@ -188,7 +172,7 @@
     updateWeights(net) {
       for (const e of this.edges.values()) {
         if (e.group === 'el') continue;
-        const w = e.bias ? net.b[e.l][e.j] : net.W[e.l][e.j][e.i];
+        const w = net.W[e.l][e.j][e.i];
         const m = Math.abs(w);
         e.base.setAttribute('stroke-width', (0.6 + 4.4 * Math.tanh(m / 1.5)).toFixed(2));
         e.base.setAttribute('stroke-opacity', (0.3 + 0.65 * Math.tanh(m)).toFixed(2));
@@ -272,7 +256,6 @@
       for (const rec of this.nodes.values()) rec.el.classList.toggle('on', !!spec && spec.nodes.includes(rec.key));
       for (const e of this.edges.values()) {
         const on = !!spec && spec.edges.includes(e.group);
-        if (e.bias) e.bias.button.classList.toggle('on', on);
         e.base.classList.toggle('on', on);
         e.pulse.classList.toggle('on', on);
       }
