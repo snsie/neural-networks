@@ -90,11 +90,11 @@
             <button id="hPlus" aria-label="More hidden neurons">+</button>
           </div>
         </div>
-        <button id="activationChip" class="text-btn activation-chip" type="button" aria-haspopup="dialog" aria-controls="activationDialog">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h3c7 0 5-12 12-12h3"/></svg>
-          <span>Hidden activation <strong id="activationName">ReLU</strong></span>
-        </button>
       </div>
+      <button id="activationChip" class="text-btn activation-chip" type="button" aria-haspopup="dialog" aria-controls="activationDialog">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h3c7 0 5-12 12-12h3"/></svg>
+        <span>Activation functions <strong id="activationName">ReLU</strong></span>
+      </button>
       <div class="metrics">
         <div class="metric"><span class="ctrl-label">Train loss</span><span id="mTrainLoss" class="mono metric-val">–</span></div>
         <div class="metric"><span class="ctrl-label">Test loss</span><span id="mTestLoss" class="mono metric-val">–</span></div>
@@ -354,7 +354,7 @@
 
     <dialog id="activationDialog" class="card activation-dialog" aria-labelledby="actTitle">
       <div class="card-head">
-        <h2 id="actTitle">Hidden activation</h2>
+        <h2 id="actTitle">Activation functions</h2>
         <form method="dialog"><button class="text-btn" autofocus>Close</button></form>
       </div>
       <div id="actPills" class="pills" role="radiogroup" aria-label="Hidden activation function"></div>
