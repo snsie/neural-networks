@@ -622,6 +622,11 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     equationDisplay.addEventListener('change', applyEquationDisplay);
     wireCalculusDialog();
 
+    const lossChip = $('#openLossComparison');
+    const lossDialog = $('#lossComparisonDialog');
+    lossChip.addEventListener('click', () => lossDialog.showModal());
+    lossDialog.addEventListener('close', () => lossChip.focus());
+
     const activationChip = $('#activationChip');
     const activationDialog = $('#activationDialog');
     activationChip.addEventListener('click', () => {

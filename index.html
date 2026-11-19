@@ -37,6 +37,7 @@
         <button id="openGuide" class="text-btn" type="button">Guided tour</button>
         <a class="text-btn exercise-link" href="./exercise.html">Student exercise</a>
         <button id="openCalculus" class="text-btn calculus-chip" type="button" aria-haspopup="dialog" aria-controls="calculusDialog">Calculus intro</button>
+        <button id="openLossComparison" class="text-btn loss-chip" type="button" aria-haspopup="dialog" aria-controls="lossComparisonDialog">MSE vs. BCE</button>
         <button id="themeToggle" class="icon-btn" title="Toggle light / dark" aria-label="Toggle light or dark theme">
           <svg class="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
           <svg class="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
@@ -253,6 +254,38 @@
         <button id="calculusPrev" class="nav-btn" type="button">Previous</button>
         <button id="calculusNext" class="nav-btn primary" type="button">Next</button>
       </div>
+    </dialog>
+
+    <dialog id="lossComparisonDialog" class="card loss-dialog" aria-labelledby="lossComparisonTitle">
+      <div class="card-head">
+        <h2 id="lossComparisonTitle">Mean squared error vs. binary cross-entropy</h2>
+        <form method="dialog"><button class="text-btn" autofocus>Close</button></form>
+      </div>
+      <p>Both losses score how far a prediction is from the target. For binary classification, <var>y</var> is the true label (0 or 1) and <var>p</var> is the predicted probability of class 1. The training loss averages the per-example losses.</p>
+      <div class="loss-definitions">
+        <section>
+          <h3>Mean squared error (MSE)</h3>
+          <p class="mono">(<var>p</var> − <var>y</var>)<sup>2</sup></p>
+          <p>Squares the prediction error. MSE is commonly used for regression, where the target is a number. With binary labels and probabilities, each loss is between 0 and 1.</p>
+        </section>
+        <section>
+          <h3>Binary cross-entropy (BCE)</h3>
+          <p class="mono">−<var>y</var> ln(<var>p</var>) − (1 − <var>y</var>) ln(1 − <var>p</var>)</p>
+          <p>Takes the negative natural log of the probability assigned to the true class. As that probability approaches zero, the loss grows without bound.</p>
+        </section>
+      </div>
+      <table class="trace-table loss-table">
+        <caption>Worked example when the true label is 1</caption>
+        <thead>
+          <tr><th scope="col">Probability <var>p</var></th><th scope="col">MSE</th><th scope="col">BCE</th></tr>
+        </thead>
+        <tbody class="mono">
+          <tr><th scope="row">0.90</th><td>(0.90 − 1)<sup>2</sup> = 0.01</td><td>−ln(0.90) ≈ 0.11</td></tr>
+          <tr><th scope="row">0.50</th><td>(0.50 − 1)<sup>2</sup> = 0.25</td><td>−ln(0.50) ≈ 0.69</td></tr>
+          <tr><th scope="row">0.01</th><td>(0.01 − 1)<sup>2</sup> ≈ 0.98</td><td>−ln(0.01) ≈ 4.61</td></tr>
+        </tbody>
+      </table>
+      <p>The Explorer pairs BCE with a sigmoid output for two-class datasets. For three-class datasets, it uses softmax with categorical cross-entropy.</p>
     </dialog>
 
     <dialog id="biasDialog" class="card bias-dialog" aria-labelledby="biasTitle">
