@@ -154,6 +154,7 @@
           <div class="walk-head">
             <div class="walk-heading">
               <h2 id="walkTitle">Equation walkthrough</h2>
+              <button id="fullEquationChip" class="pill" type="button" aria-haspopup="dialog" aria-controls="fullEquationDialog">Full equation</button>
               <button id="stepFocus" class="text-btn step-focus" type="button" aria-pressed="false" aria-controls="network">
                 Focus on step <span class="focus-state" aria-hidden="true">Off</span>
               </button>
@@ -200,6 +201,30 @@
       </section>
     </main>
   </div>
+
+    <dialog id="fullEquationDialog" class="card full-equation-dialog" aria-labelledby="fullEquationTitle">
+      <div class="card-head">
+        <h2 id="fullEquationTitle">Full equation</h2>
+        <form method="dialog"><button class="text-btn">Close</button></form>
+      </div>
+      <div class="pills equation-tabs" role="tablist" aria-label="Pass">
+        <button id="fullForwardTab" class="pill" type="button" role="tab" aria-controls="fullForward" data-pass="fwd">Forward pass</button>
+        <button id="fullBackwardTab" class="pill" type="button" role="tab" aria-controls="fullBackward" data-pass="bwd">Backward pass</button>
+      </div>
+      <section id="fullForward" role="tabpanel" aria-labelledby="fullForwardTab">
+        <p class="equation-guide">Select a term to open its walkthrough step.</p>
+        <div id="fullPrediction" class="full-formula" aria-label="Prediction equation"></div>
+      </section>
+      <section id="fullBackward" role="tabpanel" aria-labelledby="fullBackwardTab" hidden>
+        <div class="full-weight-fields trace-choices">
+          <label>Weight layer <select id="fullWeightLayer"></select></label>
+          <label>From <select id="fullWeightSource"></select></label>
+          <label>To <select id="fullWeightDestination"></select></label>
+        </div>
+        <p id="fullGradientNote" class="equation-guide"></p>
+        <div id="fullGradient" class="full-formula" aria-label="Weight gradient equation" aria-live="polite"></div>
+      </section>
+    </dialog>
 
     <dialog id="calculusDialog" class="card calculus-dialog" aria-labelledby="calculusTitle">
       <div class="card-head">

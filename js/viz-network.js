@@ -126,6 +126,13 @@
           const r = this.root.getBoundingClientRect();
           this._showTip(id, e.clientX - r.left + 14, e.clientY - r.top + 12);
         });
+        if (this.opts.onWeight) {
+          rec.hit.classList.add('weight-link');
+          rec.hit.addEventListener('click', () => {
+            this._hideTip();
+            this.opts.onWeight(idx);
+          });
+        }
         rec.hit.addEventListener('mouseleave', () => this._hideTip());
       }
       this.edges.set(id, rec);

@@ -895,3 +895,29 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 .first-run-guide p { margin: 0; font-size: 14px; }
 .guide-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.full-equation-dialog {
+  width: min(960px, calc(100% - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  color: var(--text);
+}
+.full-equation-dialog::backdrop { background: rgb(0 0 0 / .56); }
+.equation-tabs { margin: 12px 0; }
+.equation-guide { margin: 12px 0; color: var(--muted); line-height: 1.5; }
+.full-weight-fields { justify-content: flex-start; }
+.full-formula {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px 2px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2); font-size: clamp(.95rem, 2vw, 1.15rem);
+  overflow-x: auto;
+}
+.full-formula > * { flex: none; }
+.formula-term {
+  font: inherit; color: inherit; cursor: pointer;
+  padding: 4px; background: transparent; border: 1px solid transparent;
+  border-block-end-color: var(--accent); border-radius: 4px;
+}
+#fullGradient .formula-term { border-block-end-color: var(--bwd); }
+.formula-term:hover { background: var(--surface); border-color: var(--border); }
+.edge-hit.weight-link { cursor: pointer; }

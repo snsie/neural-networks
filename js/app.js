@@ -1,5 +1,6 @@
 /* App state, UI wiring, and the training loop. */
 import { wireCalculusDialog } from './calculus.js';
+import { wireFullEquation } from './full-equation.js';
 import { renderTrace, renderDetails } from './walkthrough-view.js';
 (function () {
   'use strict';
@@ -50,7 +51,11 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     ext: EXT,
     onPick: p => { sample = p; renderWalk(true); drawBoundary(); },
   });
-  const netViz = new NetworkViz($('#network'), { info: nodeInfo, onBias: openBias });
+  const netViz = new NetworkViz($('#network'), {
+    info: nodeInfo,
+    onBias: openBias,
+    onWeight: weight => openFullEquation({ model: net, pass: 'bwd', weight }),
+  });
 
   /* ---------------- dataset grid ---------------- */
   const thumbData = {};
@@ -601,6 +606,9 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     });
     $('#prevStep').addEventListener('click', () => goStep(state.step - 1));
     $('#nextStep').addEventListener('click', () => goStep(state.step + 1));
+    $('#fullEquationChip').addEventListener('click', () => {
+      openFullEquation({ model: net, pass: steps[state.step].phase });
+    });
     wireCalculusDialog();
 
     const activationChip = $('#activationChip');
@@ -694,6 +702,23 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     // Re-render once web fonts are in so canvas labels use them.
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { updateActivation(); refreshVisuals(); });
   }
+
+  const openFullEquation = wireFullEquation({
+    tex,
+    getSteps: () => steps,
+    goToStep(id, { l, i, j }) {
+      const index = steps.findIndex(step => step.id === id);
+      const layerKey = l === net.L ? 'out' : l;
+      if (id === `dW${l + 1}`) {
+        traceSelection.set(`source-${layerKey}`, i);
+        traceSelection.set(`neuron-${layerKey}`, j);
+      } else if (id === `dz${l + 1}` || id === `da${l + 1}` || (id === 'dzout' && l === net.L)) {
+        traceSelection.set(`neuron-${layerKey}`, j);
+      }
+      goStep(index);
+      $('#stepTitle').focus();
+    },
+  });
 
   window.App = { state, get net() { return net; } };
   init();
