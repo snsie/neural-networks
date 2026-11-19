@@ -31,6 +31,11 @@
   --eq-w: #4f46e5;
   --eq-g: #c026d3;
 
+  /* chain-rule nudge: Δw, Δu, ΔL */
+  --nudge-w: #d97706;
+  --nudge-u: #059669;
+  --nudge-l: #dc2626;
+
   --tip-bg: #161925;
   --tip-fg: #f4f5f9;
 
@@ -64,6 +69,9 @@
     --eq-a: #7dd3fc;
     --eq-w: #a5b4fc;
     --eq-g: #f0abfc;
+    --nudge-w: #fbbf24;
+    --nudge-u: #34d399;
+    --nudge-l: #f87171;
     --tip-bg: #e9ebf3;
     --tip-fg: #0b0d13;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
@@ -93,6 +101,9 @@
   --eq-a: #7dd3fc;
   --eq-w: #a5b4fc;
   --eq-g: #f0abfc;
+  --nudge-w: #fbbf24;
+  --nudge-u: #34d399;
+  --nudge-l: #f87171;
   --tip-bg: #e9ebf3;
   --tip-fg: #0b0d13;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
@@ -656,9 +667,80 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .calc-chain-grid .calc-plot { margin: 0; max-width: none; }
 .calc-chain-c { grid-column: 1 / -1; }
 
+/* Chain rule: forward/backward diagram */
+.calc-graph { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.calc-graph figcaption { font-size: .9rem; margin-bottom: 4px; }
+.calc-graph-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .9fr) minmax(0, 1fr) minmax(0, .9fr) minmax(0, 1fr);
+  align-items: center; gap: 6px 4px;
+}
+#calculusLesson .calc-graph-row-label { grid-column: 1 / -1; margin: 6px 0 0; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.calc-node {
+  display: grid; justify-items: center; gap: 1px; padding: 6px 4px; border-radius: 10px;
+  border: 1.5px solid var(--border); background: var(--surface); text-align: center; min-width: 0;
+  transition: opacity .3s, border-color .3s, box-shadow .3s;
+}
+.calc-node-name { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+.calc-node-val { font: 600 1.15rem var(--mono); font-variant-numeric: tabular-nums; }
+.calc-node-calc { font: .75rem var(--mono); color: var(--muted); min-height: 1.1em; }
+.calc-node-fwd { border-color: color-mix(in srgb, var(--fwd) 55%, var(--border)); }
+.calc-node-fwd .calc-node-val { color: var(--fwd); }
+.calc-edge { display: grid; justify-items: center; gap: 1px; min-width: 0; font-size: .78rem; color: var(--muted); transition: opacity .3s; }
+.calc-edge-fn { font-family: var(--mono); }
+.calc-edge-slope { font-family: var(--mono); white-space: nowrap; }
+.calc-edge-arrow { position: relative; width: 100%; height: 2px; background: currentColor; margin: 4px 0; }
+.calc-edge-arrow::after { content: ""; position: absolute; top: -5px; border: 6px solid transparent; }
+.calc-edge-fwd { color: var(--fwd); }
+.calc-edge-fwd .calc-edge-arrow::after { right: -2px; border-left: 8px solid currentColor; border-right: 0; }
+.calc-edge-bwd { color: var(--bwd); }
+.calc-edge-bwd .calc-edge-arrow::after { left: -2px; border-right: 8px solid currentColor; border-left: 0; }
+.calc-node-bwd { border-style: dashed; opacity: .45; }
+.calc-edge-bwd { opacity: .3; }
+.calc-node-bwd .calc-node-val { color: var(--muted); }
+.calc-node-bwd.reached, .calc-edge-bwd.reached { opacity: 1; }
+.calc-node-bwd.reached { border-style: solid; border-color: var(--bwd); }
+.calc-node-bwd.reached .calc-node-val { color: var(--bwd); }
+.calc-node-bwd.current { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bwd) 25%, transparent); }
+.calc-graph-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; }
+#calculusLesson .calc-graph-note { margin: 0; flex: 1; min-width: 200px; font-size: .9rem; }
+
+/* Chain rule: the nudge */
+.calc-nudge-panel { margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border); }
+.calc-nudge-panel h4 { margin: 0 0 6px; font-size: .95rem; }
+.calc-nudge-control { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-weight: 600; font-size: .9rem; }
+.calc-nudge-control output { font-variant-numeric: tabular-nums; }
+.calc-nudge-control input { flex: 1; min-width: 160px; max-width: 320px; accent-color: var(--nudge-w); }
+.calc-nudge-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 8px; }
+.calc-nudge-step { display: grid; align-content: start; gap: 6px; min-width: 0; }
+.calc-nudge-step .calc-plot { margin: 0; padding: 6px; }
+#calculusLesson .calc-nudge-step p { margin: 0; font-size: .86rem; line-height: 1.55; font-variant-numeric: tabular-nums; }
+#calculusLesson .calc-nudge-sum { margin: 0; color: var(--muted); }
+.calc-tag { display: inline-block; padding: 0 5px; border-radius: 6px; font-weight: 700; font-family: var(--mono); font-size: .88em; color: #fff; }
+.calc-tag-w { background: var(--nudge-w); }
+.calc-tag-u { background: var(--nudge-u); }
+.calc-tag-L { background: var(--nudge-l); }
+:root[data-theme="dark"] .calc-tag { color: #0b0d13; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .calc-tag { color: #0b0d13; } }
+.calc-nudge { stroke-width: 3.2; stroke-linecap: round; }
+.calc-nudge-w { stroke: var(--nudge-w); fill: var(--nudge-w); }
+.calc-nudge-u { stroke: var(--nudge-u); fill: var(--nudge-u); }
+.calc-nudge-L { stroke: var(--nudge-l); fill: var(--nudge-l); }
+.calc-nudge-hyp { stroke: var(--text); stroke-width: 1.2; stroke-dasharray: 3 3; opacity: .6; }
+.calc-nudge-actual { fill: var(--surface); stroke: var(--text); stroke-width: 1.6; }
+.calc-nudge-end { stroke: var(--surface); stroke-width: 1.5; }
+.calc-plot text.calc-nudge-label { stroke: var(--surface); stroke-width: 3px; paint-order: stroke; font-weight: 700; font-family: var(--mono); }
+.calc-plot text.calc-nudge-w { fill: var(--nudge-w); }
+.calc-plot text.calc-nudge-u { fill: var(--nudge-u); }
+.calc-plot text.calc-nudge-L { fill: var(--nudge-l); }
+
 @media (max-width: 620px) {
   .calc-partial-grid, .calc-chain-grid, .calc-slices { grid-template-columns: minmax(0, 1fr); }
   .calc-chain-c .calc-plot text { font-size: 22px; }
+  .calc-node-val { font-size: 1rem; }
+  .calc-nudge-grid { grid-template-columns: minmax(0, 1fr); }
+  .calc-edge-fn { display: none; }
+  .calc-edge-slope { white-space: normal; text-align: center; font-size: .72rem; }
+  .calc-graph-grid { gap: 6px 2px; }
 }
 @media (max-width: 560px) {
   .calc-plot { padding: 6px; }
