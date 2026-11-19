@@ -274,6 +274,61 @@
           <p>Takes the negative natural log of the probability assigned to the true class. As that probability approaches zero, the loss grows without bound.</p>
         </section>
       </div>
+      <p>Both plots show the loss when the true label is 1. They use the same scale, and BCE continues above the plot as the predicted probability approaches zero.</p>
+      <div class="loss-definitions">
+        <section>
+          <h3 id="msePlotTitle">MSE loss curve</h3>
+          <svg viewBox="0 0 312 178" width="100%" role="img" aria-labelledby="msePlotTitle" aria-describedby="msePlotDesc">
+            <desc id="msePlotDesc">For true label 1, mean squared error decreases from 1 at probability 0 to 0 at probability 1.</desc>
+            <path d="M36 22H296 M36 44H296 M36 66H296 M36 88H296 M36 110H296 M166 22V132" fill="none" stroke="var(--faint)" stroke-opacity=".45"/>
+            <path d="M36 22V132H296" fill="none" stroke="var(--muted)"/>
+            <g fill="var(--muted)" font-size="11">
+              <text x="36" y="14">Loss</text>
+              <g text-anchor="end">
+                <text x="29" y="26">5</text>
+                <text x="29" y="48">4</text>
+                <text x="29" y="70">3</text>
+                <text x="29" y="92">2</text>
+                <text x="29" y="114">1</text>
+                <text x="29" y="136">0</text>
+              </g>
+              <g text-anchor="middle">
+                <text x="36" y="148">0</text>
+                <text x="166" y="148">0.5</text>
+                <text x="296" y="148">1</text>
+                <text x="166" y="168">Predicted probability of class 1</text>
+              </g>
+            </g>
+            <path d="M36 110 Q166 132 296 132" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>
+          </svg>
+        </section>
+        <section>
+          <h3 id="bcePlotTitle">BCE loss curve</h3>
+          <svg viewBox="0 0 312 178" width="100%" role="img" aria-labelledby="bcePlotTitle" aria-describedby="bcePlotDesc">
+            <desc id="bcePlotDesc">For true label 1, binary cross-entropy decreases to 0 at probability 1 and grows without bound as the probability approaches 0. The plot shows losses up to 5.</desc>
+            <path d="M36 22H296 M36 44H296 M36 66H296 M36 88H296 M36 110H296 M166 22V132" fill="none" stroke="var(--faint)" stroke-opacity=".45"/>
+            <path d="M36 22V132H296" fill="none" stroke="var(--muted)"/>
+            <g fill="var(--muted)" font-size="11">
+              <text x="36" y="14">Loss</text>
+              <g text-anchor="end">
+                <text x="29" y="26">5</text>
+                <text x="29" y="48">4</text>
+                <text x="29" y="70">3</text>
+                <text x="29" y="92">2</text>
+                <text x="29" y="114">1</text>
+                <text x="29" y="136">0</text>
+              </g>
+              <g text-anchor="middle">
+                <text x="36" y="148">0</text>
+                <text x="166" y="148">0.5</text>
+                <text x="296" y="148">1</text>
+                <text x="166" y="168">Predicted probability of class 1</text>
+              </g>
+            </g>
+            <path d="M37.75 22.00 L37.94 24.20 L38.14 26.40 L38.36 28.60 L38.61 30.80 L38.89 33.00 L39.19 35.20 L39.53 37.40 L39.90 39.60 L40.31 41.80 L40.76 44.00 L41.26 46.20 L41.82 48.40 L42.43 50.60 L43.10 52.80 L43.85 55.00 L44.68 57.20 L45.59 59.40 L46.60 61.60 L47.71 63.80 L48.94 66.00 L50.31 68.20 L51.81 70.40 L53.47 72.60 L55.31 74.80 L57.34 77.00 L59.59 79.20 L62.07 81.40 L64.81 83.60 L67.84 85.80 L71.19 88.00 L74.89 90.20 L78.98 92.40 L83.50 94.60 L88.49 96.80 L94.01 99.00 L100.12 101.20 L106.86 103.40 L114.31 105.60 L122.55 107.80 L131.65 110.00 L141.71 112.20 L152.83 114.40 L165.11 116.60 L178.69 118.80 L193.70 121.00 L210.28 123.20 L228.61 125.40 L248.87 127.60 L271.26 129.80 L296.00 132.00" fill="none" stroke="var(--c0)" stroke-width="2.5" stroke-linejoin="round"/>
+          </svg>
+        </section>
+      </div>
       <table class="trace-table loss-table">
         <caption>Worked example when the true label is 1</caption>
         <thead>
