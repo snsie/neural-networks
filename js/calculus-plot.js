@@ -62,6 +62,7 @@ export function createFunctionPlot(host, options) {
   const {
     xName = 'x', fName = 'y', dName = 'dy/dx', caption = '',
     width = 560, height = 300, interactive = true, onSelect, compact = false,
+    showDerivative = true, legend = true,
   } = options;
   const id = `calcClip${++uid}`;
   const W = width, H = height;
@@ -71,11 +72,11 @@ export function createFunctionPlot(host, options) {
   host.innerHTML = `
     <figure class="calc-plot${compact ? ' compact' : ''}">
       ${caption !== null ? `<figcaption>${caption}</figcaption>` : ''}
-      <div class="calc-legend" aria-hidden="true">
+      ${legend ? `<div class="calc-legend" aria-hidden="true">
         <span class="lg lg-f">${fName}</span>
-        <span class="lg lg-df">${dName}</span>
+        ${showDerivative ? `<span class="lg lg-df">${dName}</span>` : ''}
         <span class="lg lg-tan">tangent</span>
-      </div>
+      </div>` : ''}
       <svg viewBox="0 0 ${W} ${H}" ${interactive ? `tabindex="0" role="slider" aria-label="Point on the ${fName} curve. Use the arrow keys to move it."` : 'role="img"'} class="${interactive ? 'interactive' : ''}"></svg>
     </figure>`;
   const svg = host.querySelector('svg');
@@ -85,6 +86,7 @@ export function createFunctionPlot(host, options) {
   let xRange = [-3, 3], ys = [-1, 1];
   let px = 0;
   let staticLayer = '';
+  let nudge = null;
 
   const xs = x => M.l + ((x - xRange[0]) / (xRange[1] - xRange[0])) * PW;
   const yPos = y => M.t + PH - ((y - ys[0]) / (ys[1] - ys[0])) * PH;
@@ -127,7 +129,7 @@ export function createFunctionPlot(host, options) {
       ${grid}${labels}
       <text class="calc-axis-name" x="${M.l + PW - 5}" y="${M.t + PH - 7}" text-anchor="end">${xName}</text>
       <g clip-path="url(#${id})">
-        <path class="calc-df" d="${curvePath(df)}"/>
+        ${showDerivative ? `<path class="calc-df" d="${curvePath(df)}"/>` : ''}
         <path class="calc-f" d="${curvePath(f)}"/>
       </g>`;
   }
@@ -144,7 +146,8 @@ export function createFunctionPlot(host, options) {
       const Y = yPos(y);
       marks += `<line class="calc-tan" x1="${(X - ux).toFixed(1)}" y1="${(Y - uy).toFixed(1)}" x2="${(X + ux).toFixed(1)}" y2="${(Y + uy).toFixed(1)}"/>`;
     }
-    if (Number.isFinite(m)) marks += `<circle class="calc-pt-df" cx="${X.toFixed(1)}" cy="${yPos(m).toFixed(1)}" r="4.5"/>`;
+    if (nudge) marks += nudgeMarks(y);
+    if (showDerivative && Number.isFinite(m)) marks += `<circle class="calc-pt-df" cx="${X.toFixed(1)}" cy="${yPos(m).toFixed(1)}" r="4.5"/>`;
     if (Number.isFinite(y)) marks += `<circle class="calc-pt-f" cx="${X.toFixed(1)}" cy="${yPos(y).toFixed(1)}" r="5.5"/>`;
     svg.innerHTML = `${staticLayer}<g clip-path="url(#${id})">${marks}</g>`;
     if (interactive) {
@@ -155,6 +158,27 @@ export function createFunctionPlot(host, options) {
     } else {
       svg.setAttribute('aria-label', `${fName} versus ${xName}. At ${xName} = ${fmt(px)}, ${fName} = ${fmt(y)} and ${dName} = ${fmt(m)}.`);
     }
+  }
+
+  /* A nudge: from the point, step dx along the x axis (one color), then rise dy along
+     the tangent (another color). A hollow dot marks where the curve really goes. */
+  function nudgeMarks(y) {
+    const { dx, dy, xKind, yKind, xLabel, yLabel } = nudge;
+    if (![y, dx, dy].every(Number.isFinite)) return '';
+    const X0 = xs(px), Y0 = yPos(y), X1 = xs(px + dx), Y1 = yPos(y + dy);
+    const actual = f(px + dx);
+    const below = dy >= 0; // put the Δx label on the side away from the rise
+    const lx = (X0 + X1) / 2, ly = Y0 + (below ? 16 : -8);
+    const vx = X1 + (X1 >= X0 ? 6 : -6), vy = (Y0 + Y1) / 2 + 4;
+    const anchor = X1 >= X0 ? 'start' : 'end';
+    return `
+      <line class="calc-nudge-hyp" x1="${X0.toFixed(1)}" y1="${Y0.toFixed(1)}" x2="${X1.toFixed(1)}" y2="${Y1.toFixed(1)}"/>
+      <line class="calc-nudge calc-nudge-${xKind}" x1="${X0.toFixed(1)}" y1="${Y0.toFixed(1)}" x2="${X1.toFixed(1)}" y2="${Y0.toFixed(1)}"/>
+      <line class="calc-nudge calc-nudge-${yKind}" x1="${X1.toFixed(1)}" y1="${Y0.toFixed(1)}" x2="${X1.toFixed(1)}" y2="${Y1.toFixed(1)}"/>
+      ${Number.isFinite(actual) ? `<circle class="calc-nudge-actual" cx="${X1.toFixed(1)}" cy="${Math.min(H * 6, Math.max(-H * 5, yPos(actual))).toFixed(1)}" r="4"/>` : ''}
+      <circle class="calc-nudge-end calc-nudge-${yKind}" cx="${X1.toFixed(1)}" cy="${Y1.toFixed(1)}" r="3.5"/>
+      <text class="calc-nudge-label calc-nudge-${xKind}" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle">${xLabel}</text>
+      <text class="calc-nudge-label calc-nudge-${yKind}" x="${vx.toFixed(1)}" y="${vy.toFixed(1)}" text-anchor="${anchor}">${yLabel}</text>`;
   }
 
   const clamp = x => Math.round(Math.min(xRange[1], Math.max(xRange[0], x)) * 100) / 100;
@@ -203,6 +227,11 @@ export function createFunctionPlot(host, options) {
     },
     setX(x) {
       px = x;
+      draw();
+    },
+    // nudge: { dx, dy, xKind, yKind, xLabel, yLabel } or null. Kinds: w, u, L (set the colors).
+    setNudge(next) {
+      nudge = next;
       draw();
     },
     setCaption(html) {
