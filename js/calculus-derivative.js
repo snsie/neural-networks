@@ -1,6 +1,6 @@
 /* Derivative lesson: an editable function y(x), its symbolic derivative, and an
    overlaid plot of y and dy/dx with a tangent line at a selected point. */
-import { analyse, editorHTML, wireEditor, renderTex, fmt, texNum } from './calculus-math.js';
+import { analyse, editorHTML, lessonHelpHTML, wireEditor, renderTex, fmt, texNum } from './calculus-math.js';
 import { createFunctionPlot } from './calculus-plot.js';
 
 const X_RANGE = [-3, 3];
@@ -22,7 +22,10 @@ export function slopeSentence(m, x, y, step = 0.1) {
 
 export function mount(host) {
   host.innerHTML = `
-    <p>The derivative <var>dy/dx</var> gives the slope of <var>y</var> at every <var>x</var>. Edit the function and the derivative updates. Click or drag along the curve to inspect a point.</p>
+    ${lessonHelpHTML('Derivative', `
+      <p>The derivative <var>dy/dx</var> gives the slope of <var>y</var> at every <var>x</var>. Edit the function and the derivative updates. Click or drag along the curve to inspect a point.</p>
+      <p>In a network, <var>y</var> is the loss and <var>x</var> is one weight. The sign of the derivative says which way to nudge the weight, and its size says how strongly the loss responds.</p>
+    `)}
     ${editorHTML({ lhs: 'y', value: 'x^3', label: 'Function of x', examples: ['x^2 - 2x', 'sin(x)', 'e^x', 'ln(x)', 'tanh(x)'] })}
     <div class="calc-math" aria-live="polite">
       <div class="calc-eq-f"></div>
@@ -33,8 +36,7 @@ export function mount(host) {
       <p class="calc-values"></p>
       <p class="calc-tangent"><span>Tangent line:</span> <span class="calc-tex"></span></p>
       <p class="calc-meaning"></p>
-    </div>
-    <p>In a network, <var>y</var> is the loss and <var>x</var> is one weight. The sign of the derivative says which way to nudge the weight, and its size says how strongly the loss responds.</p>`;
+    </div>`;
 
   const mathBox = host.querySelector('.calc-math');
   const values = host.querySelector('.calc-values');

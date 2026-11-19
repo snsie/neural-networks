@@ -27,9 +27,9 @@
   --bwd: #d946ef;
 
   /* chain-rule nudge: Δw, Δu, ΔL */
-  --nudge-w: #d97706;
-  --nudge-u: #059669;
-  --nudge-l: #dc2626;
+  --nudge-x: #d97706;
+  --nudge-y: #059669;
+  --nudge-z: #dc2626;
 
   --tip-bg: #161925;
   --tip-fg: #f4f5f9;
@@ -61,9 +61,9 @@
     --neg: #fb7185;
     --fwd: #38bdf8;
     --bwd: #e879f9;
-    --nudge-w: #fbbf24;
-    --nudge-u: #34d399;
-    --nudge-l: #f87171;
+    --nudge-x: #fbbf24;
+    --nudge-y: #34d399;
+    --nudge-z: #f87171;
     --tip-bg: #e9ebf3;
     --tip-fg: #0b0d13;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
@@ -90,9 +90,9 @@
   --neg: #fb7185;
   --fwd: #38bdf8;
   --bwd: #e879f9;
-  --nudge-w: #fbbf24;
-  --nudge-u: #34d399;
-  --nudge-l: #f87171;
+  --nudge-x: #fbbf24;
+  --nudge-y: #34d399;
+  --nudge-z: #f87171;
   --tip-bg: #e9ebf3;
   --tip-fg: #0b0d13;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
@@ -613,6 +613,20 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .calculus-step-chip span { font-variant-numeric: tabular-nums; opacity: .6; margin-inline-end: 2px; }
 .calculus-step-chip.on span { opacity: .8; }
 
+/* Optional lesson explanations */
+.calc-help { margin-bottom: 6px; }
+.calc-help summary {
+  display: grid; place-items: center; width: 34px; height: 34px; list-style: none;
+  border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2);
+  color: var(--text); font-weight: 700; cursor: pointer;
+}
+.calc-help summary::-webkit-details-marker { display: none; }
+.calc-help summary:hover, .calc-help[open] summary { background: var(--surface-3); }
+.calc-help summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.calc-help-body { margin-top: 8px; padding: 10px 14px; background: var(--surface-2); border-radius: 12px; }
+#calculusLesson .calc-help-body p:last-child { margin-bottom: 0; }
+.calc-chain-slopes { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+
 /* Calculus lessons: editor, typeset math, plots, readouts */
 .calc-editor { display: grid; gap: 6px; max-width: 560px; margin-block: 10px; }
 .calc-input { display: flex; align-items: center; gap: 8px; font-weight: 600; }
@@ -710,7 +724,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .calc-chain-editors .calc-editor { margin-block: 6px; }
 .calc-chain-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 8px; }
 .calc-chain-grid .calc-plot { margin: 0; max-width: none; }
-.calc-chain-c { grid-column: 1 / -1; }
+.calc-chain-c .calc-plot { max-width: none; margin-bottom: 12px; }
 
 /* Chain rule: forward/backward diagram */
 .calc-graph { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
@@ -754,29 +768,29 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .calc-nudge-panel h4 { margin: 0 0 6px; font-size: .95rem; }
 .calc-nudge-control { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-weight: 600; font-size: .9rem; }
 .calc-nudge-control output { font-variant-numeric: tabular-nums; }
-.calc-nudge-control input { flex: 1; min-width: 160px; max-width: 320px; accent-color: var(--nudge-w); }
+.calc-nudge-control input { flex: 1; min-width: 160px; max-width: 320px; accent-color: var(--nudge-x); }
 .calc-nudge-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 8px; }
 .calc-nudge-step { display: grid; align-content: start; gap: 6px; min-width: 0; }
 .calc-nudge-step .calc-plot { margin: 0; padding: 6px; }
 #calculusLesson .calc-nudge-step p { margin: 0; font-size: .86rem; line-height: 1.55; font-variant-numeric: tabular-nums; }
 #calculusLesson .calc-nudge-sum { margin: 0; color: var(--muted); }
 .calc-tag { display: inline-block; padding: 0 5px; border-radius: 6px; font-weight: 700; font-family: var(--mono); font-size: .88em; color: #fff; }
-.calc-tag-w { background: var(--nudge-w); }
-.calc-tag-u { background: var(--nudge-u); }
-.calc-tag-L { background: var(--nudge-l); }
+.calc-tag-x { background: var(--nudge-x); }
+.calc-tag-y { background: var(--nudge-y); }
+.calc-tag-z { background: var(--nudge-z); }
 :root[data-theme="dark"] .calc-tag { color: #0b0d13; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .calc-tag { color: #0b0d13; } }
 .calc-nudge { stroke-width: 3.2; stroke-linecap: round; }
-.calc-nudge-w { stroke: var(--nudge-w); fill: var(--nudge-w); }
-.calc-nudge-u { stroke: var(--nudge-u); fill: var(--nudge-u); }
-.calc-nudge-L { stroke: var(--nudge-l); fill: var(--nudge-l); }
+.calc-nudge-x { stroke: var(--nudge-x); fill: var(--nudge-x); }
+.calc-nudge-y { stroke: var(--nudge-y); fill: var(--nudge-y); }
+.calc-nudge-z { stroke: var(--nudge-z); fill: var(--nudge-z); }
 .calc-nudge-hyp { stroke: var(--text); stroke-width: 1.2; stroke-dasharray: 3 3; opacity: .6; }
 .calc-nudge-actual { fill: var(--surface); stroke: var(--text); stroke-width: 1.6; }
 .calc-nudge-end { stroke: var(--surface); stroke-width: 1.5; }
-.calc-plot text.calc-nudge-label { stroke: var(--surface); stroke-width: 3px; paint-order: stroke; font-weight: 700; font-family: var(--mono); }
-.calc-plot text.calc-nudge-w { fill: var(--nudge-w); }
-.calc-plot text.calc-nudge-u { fill: var(--nudge-u); }
-.calc-plot text.calc-nudge-L { fill: var(--nudge-l); }
+.calc-plot text.calc-nudge-zabel { stroke: var(--surface); stroke-width: 3px; paint-order: stroke; font-weight: 700; font-family: var(--mono); }
+.calc-plot text.calc-nudge-x { fill: var(--nudge-x); }
+.calc-plot text.calc-nudge-y { fill: var(--nudge-y); }
+.calc-plot text.calc-nudge-z { fill: var(--nudge-z); }
 
 @media (max-width: 620px) {
   .calc-partial-grid, .calc-chain-grid, .calc-slices { grid-template-columns: minmax(0, 1fr); }
