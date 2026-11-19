@@ -132,6 +132,7 @@
 
 .idea { display: flex; flex-direction: column; }
 .idea p { margin: 8px 0 0; }
+.idea .idea-data { font-size: .88rem; }
 .idea span { margin-top: auto; padding-top: 16px; color: var(--accent); font-size: .82rem; font-weight: 600; }
 
 .build-steps {
