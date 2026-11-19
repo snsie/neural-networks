@@ -3,16 +3,7 @@ const lossSlope = prediction => 2 * (prediction - 3);
 const number = value => String(Math.round(value * 100) / 100).replace('-', '−');
 
 const lessons = {
-  derivative: {
-    title: 'Derivative',
-    prompt: 'Move the prediction along the curve. Where would a small move to the right lower the loss? Bring the two dots closer to see the slope at the filled dot.',
-    idea: 'The derivative is the slope right where you are. A steeper slope means the loss changes faster.',
-    notation: 'L = (p − 3)² · dL/dp = 2(p − 3), where p is the prediction.',
-    controls: [
-      ['Prediction', 1, 4, 0.1, 2],
-      ['Distance between points', 0, 0.8, 0.1, 0.5],
-    ],
-  },
+  derivative: { title: 'Derivative' },
   partial: {
     title: 'Partial derivative',
     prompt: 'Start with weight 1 and bias 0. Which small increase would lower the loss more? Move one slider and watch how each graph holds the other setting fixed.',
@@ -32,15 +23,14 @@ const lessons = {
   },
 };
 
-function plot({ xLabel, yLabel, domain, yMax, fn, x, slope, gap = 0, caption }) {
+function plot({ xLabel, yLabel, domain, yMax, fn, x, slope, caption }) {
   const [min, max] = domain;
   const xPos = v => 30 + (v - min) / (max - min) * 226;
   const yPos = v => 118 - v / yMax * 103;
   const point = (a, b) => `${xPos(a)},${yPos(b)}`;
   const y = fn(x);
-  const lineSlope = gap ? (fn(x + gap) - y) / gap : slope;
-  const a = gap ? x : Math.max(min, x - (max - min) * 0.13);
-  const b = gap ? x + gap : Math.min(max, x + (max - min) * 0.13);
+  const a = Math.max(min, x - (max - min) * 0.13);
+  const b = Math.min(max, x + (max - min) * 0.13);
   const curve = Array.from({ length: 61 }, (_, i) => {
     const v = min + i / 60 * (max - min);
     return point(v, fn(v));
@@ -48,7 +38,7 @@ function plot({ xLabel, yLabel, domain, yMax, fn, x, slope, gap = 0, caption }) 
   return `
     <figure class="calculus-plot">
       <figcaption><strong>${yLabel} vs. ${xLabel.toLowerCase()}</strong><span>${caption}</span></figcaption>
-      <svg viewBox="0 0 270 157" role="img" aria-label="${yLabel} versus ${xLabel.toLowerCase()}. At ${number(x)}, ${yLabel.toLowerCase()} is ${number(y)}. ${gap ? 'Slope between points' : 'Local slope'} is ${number(lineSlope)}.">
+      <svg viewBox="0 0 270 157" role="img" aria-label="${yLabel} versus ${xLabel.toLowerCase()}. At ${number(x)}, ${yLabel.toLowerCase()} is ${number(y)}. Local slope is ${number(slope)}.">
         <path class="calculus-axis" d="M30 15V118H256" />
         <text x="25" y="20" text-anchor="end">${yMax}</text>
         <text x="25" y="118" text-anchor="end">0</text>
@@ -57,8 +47,7 @@ function plot({ xLabel, yLabel, domain, yMax, fn, x, slope, gap = 0, caption }) 
         <text x="143" y="153" text-anchor="middle">${xLabel}</text>
         <svg x="30" y="15" width="226" height="103" viewBox="30 15 226 103" overflow="hidden">
           <polyline class="calculus-curve" points="${curve}" />
-          <polyline class="calculus-slope" points="${point(a, y + lineSlope * (a - x))} ${point(b, y + lineSlope * (b - x))}" />
-          ${gap ? `<circle class="calculus-nearby" cx="${xPos(b)}" cy="${yPos(fn(b))}" r="4" />` : ''}
+          <polyline class="calculus-slope" points="${point(a, y + slope * (a - x))} ${point(b, y + slope * (b - x))}" />
           <circle class="calculus-point" cx="${xPos(x)}" cy="${yPos(y)}" r="4" />
         </svg>
       </svg>
@@ -71,7 +60,18 @@ function direction(slope) {
   return 'has almost no effect on the loss at first';
 }
 
+let derivativeModule = null;
+
 function mountCalculusLesson(host, id) {
+  if (id === 'derivative') {
+    host.innerHTML = '<p class="calculus-example">Loading the lesson…</p>';
+    derivativeModule ??= import('./calculus-derivative.js');
+    derivativeModule.then(
+      ({ mountDerivativeLesson }) => { if (host.dataset.lesson === id) mountDerivativeLesson(host); },
+      () => { if (host.dataset.lesson === id) host.innerHTML = '<p class="calculus-example">This lesson couldn’t load. Check your connection and reopen it.</p>'; },
+    );
+    return;
+  }
   const lesson = lessons[id];
   host.innerHTML = `
     <p class="calculus-example">One neuron with input 2 and target 3. The prediction is twice the weight plus the bias. Loss is the squared distance from the target.</p>
@@ -101,18 +101,6 @@ function mountCalculusLesson(host, id) {
       input.closest('label').querySelector('output').value = number(value);
       return value;
     });
-    if (id === 'derivative') {
-      const slope = lossSlope(first);
-      const shownSlope = slope + second;
-      plots.innerHTML = plot({
-        xLabel: 'Prediction', yLabel: 'Loss', domain: [0.5, 5], yMax: 7,
-        fn: loss, x: first, slope, gap: second,
-        caption: second ? 'Dashed line joins two points' : 'Dashed line shows the local slope',
-      });
-      result.textContent = `${second ? 'Slope between dots' : 'Slope at the dot'} ${number(shownSlope)}. Increasing the prediction a little ${direction(slope)}.`;
-      return;
-    }
-
     const weight = first;
     const bias = second ?? 0;
     const prediction = 2 * weight + bias;
@@ -156,12 +144,28 @@ export function wireCalculusDialog() {
   const host = dialog.querySelector('#calculusLesson');
   const previous = dialog.querySelector('#calculusPrev');
   const next = dialog.querySelector('#calculusNext');
+  const chips = dialog.querySelector('#calculusChips');
   const ids = Object.keys(lessons);
   let index = 0;
+
+  chips.innerHTML = ids.map((id, i) =>
+    `<button type="button" class="pill calculus-step-chip" data-index="${i}"><span aria-hidden="true">${i + 1}</span> ${lessons[id].title}</button>`).join('');
+  chips.addEventListener('click', event => {
+    const chip = event.target.closest('button[data-index]');
+    if (!chip || +chip.dataset.index === index) return;
+    index = +chip.dataset.index;
+    showLesson();
+  });
 
   function showLesson() {
     const id = ids[index];
     title.textContent = lessons[id].title;
+    host.dataset.lesson = id;
+    chips.querySelectorAll('button').forEach((chip, i) => {
+      chip.classList.toggle('on', i === index);
+      if (i === index) chip.setAttribute('aria-current', 'step');
+      else chip.removeAttribute('aria-current');
+    });
     mountCalculusLesson(host, id);
     previous.disabled = index === 0;
     next.textContent = index === ids.length - 1 ? 'Done' : 'Next';
