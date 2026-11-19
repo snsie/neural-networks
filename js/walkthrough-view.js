@@ -15,9 +15,10 @@ function renderSection({ label, rule, worked }, tex) {
   const el = element('section', 'trace-calculation');
   el.append(element('h4', '', label));
   const lines = element('div', 'trace-lines');
-  for (const [heading, source] of [['Rule', rule], ['This sample', worked]]) {
+  for (const [mode, heading, source] of [['symbolic', 'Symbolic', rule], ['sample', 'This sample', worked]]) {
     if (!source) continue;
     const line = element('div', 'trace-line');
+    line.dataset.equationMode = mode;
     line.append(element('span', 'trace-caption', heading));
     addMath(line, source, tex, true);
     lines.append(line);
@@ -162,12 +163,11 @@ function fillDetail(panel) {
   for (const source of [math].flat()) addMath(content, source, tex, true);
 }
 
-export function renderDetails(el, details = [], tex, openByDefault) {
+export function renderDetails(el, details = [], tex) {
   const panels = Array.from(el.children);
   if (panels.length !== details.length || panels.some((panel, i) => panel.firstChild.textContent !== details[i].title)) {
     el.replaceChildren(...details.map(({ title }) => {
       const panel = element('details', 'trace-detail');
-      panel.open = openByDefault;
       panel.append(element('summary', '', title), element('div', 'trace-detail-content'));
       panel.addEventListener('toggle', () => fillDetail(panel));
       return panel;

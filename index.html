@@ -193,7 +193,16 @@
               <h3 id="stepTitle" tabindex="-1"></h3>
               <p id="stepNote" class="step-note"></p>
             </div>
-            <div id="traceChoices" class="trace-choices"></div>
+            <div class="trace-choices">
+              <label>Equation display
+                <select id="equationDisplay">
+                  <option value="both">Symbolic + this sample</option>
+                  <option value="symbolic">Symbolic</option>
+                  <option value="sample">This sample</option>
+                </select>
+              </label>
+              <div id="traceChoices" class="trace-choices"></div>
+            </div>
           </div>
           <div id="stepEq" class="step-eq"></div>
           <div id="traceDetails" class="trace-details"></div>
@@ -213,7 +222,10 @@
       </div>
       <section id="fullForward" role="tabpanel" aria-labelledby="fullForwardTab">
         <p class="equation-guide">Select a term to open its walkthrough step.</p>
-        <div id="fullPrediction" class="full-formula" aria-label="Prediction equation"></div>
+        <h3 class="full-formula-label">Symbolic equation</h3>
+        <div id="fullPrediction" class="full-formula" aria-label="Symbolic prediction equation"></div>
+        <h3 class="full-formula-label">With this sample’s values</h3>
+        <div id="fullPredictionSample" class="full-formula" role="group" tabindex="0" aria-label="Prediction with this sample’s values"></div>
       </section>
       <section id="fullBackward" role="tabpanel" aria-labelledby="fullBackwardTab" hidden>
         <div class="full-weight-fields trace-choices">
@@ -222,7 +234,11 @@
           <label>To <select id="fullWeightDestination"></select></label>
         </div>
         <p id="fullGradientNote" class="equation-guide"></p>
-        <div id="fullGradient" class="full-formula" aria-label="Weight gradient equation" aria-live="polite"></div>
+        <h3 class="full-formula-label">Symbolic equation</h3>
+        <div id="fullGradient" class="full-formula" aria-label="Symbolic weight gradient equation"></div>
+        <h3 class="full-formula-label">With this sample’s values</h3>
+        <p id="fullGradientSampleNote" class="equation-guide"></p>
+        <div id="fullGradientSample" class="full-formula" role="group" tabindex="0" aria-label="Weight gradient with this sample’s values" aria-live="polite"></div>
       </section>
     </dialog>
 

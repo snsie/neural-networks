@@ -287,5 +287,5 @@
     return steps;
   }
 
-  window.Equations = { build };
+  window.Equations = { build, number, matrix, column };
 })();

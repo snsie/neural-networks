@@ -23,7 +23,7 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     dsId: 'circle', noise: 0.1, seed: 1, initSeed: 1,
     H: 1, L: 1, actId: 'relu', lr: 0.03, optimizer: 'adam',
     playing: false, epoch: 0, showTest: true,
-    openStepDetails: false, step: 0, stepFocus: null,
+    equationDisplay: 'both', step: 0, stepFocus: null,
   };
 
   let data, train, test, net, grid, pal, sample, cur, steps = [];
@@ -54,7 +54,7 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
   const netViz = new NetworkViz($('#network'), {
     info: nodeInfo,
     onBias: openBias,
-    onWeight: weight => openFullEquation({ model: net, pass: 'bwd', weight }),
+    onWeight: weight => showFullEquation('bwd', weight),
   });
 
   /* ---------------- dataset grid ---------------- */
@@ -376,7 +376,7 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
       lastEqKey = key;
       if (lastStepId !== s.id) $('#traceDetails').replaceChildren();
       renderTrace($('#stepEq'), guide, tex);
-      renderDetails($('#traceDetails'), guide.details, tex, state.openStepDetails);
+      renderDetails($('#traceDetails'), guide.details, tex);
       lastStepId = s.id;
     }
     $('#prevStep').disabled = state.step === 0;
@@ -385,6 +385,12 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     netViz.highlight(state.stepFocus ? guide.hl : null);
     netViz.setValues(nodeValues(guide));
     renderSampleChip();
+  }
+
+  function showFullEquation(pass, weight) {
+    setPlaying(false);
+    renderWalk(false);
+    openFullEquation({ model: net, cache: cur.c, grads: cur.g, pass, weight });
   }
 
   function renderSampleChip() {
@@ -606,9 +612,14 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     });
     $('#prevStep').addEventListener('click', () => goStep(state.step - 1));
     $('#nextStep').addEventListener('click', () => goStep(state.step + 1));
-    $('#fullEquationChip').addEventListener('click', () => {
-      openFullEquation({ model: net, pass: steps[state.step].phase });
-    });
+    $('#fullEquationChip').addEventListener('click', () => showFullEquation(steps[state.step].phase));
+    const equationDisplay = $('#equationDisplay');
+    const applyEquationDisplay = () => {
+      $('.equation-body').dataset.equationDisplay = equationDisplay.value;
+    };
+    equationDisplay.value = state.equationDisplay;
+    applyEquationDisplay();
+    equationDisplay.addEventListener('change', applyEquationDisplay);
     wireCalculusDialog();
 
     const activationChip = $('#activationChip');
@@ -680,7 +691,9 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     if (layers >= MIN_LAYERS && layers <= MAX_LAYERS) state.L = layers;
     const step = Number(q.get('step'));
     if (Number.isInteger(step) && step >= 1) state.step = step - 1; // clamped once steps are built
-    state.openStepDetails = q.get('mode') === 'symbolic';
+    const mode = q.get('mode');
+    if (mode === 'symbolic') state.equationDisplay = 'symbolic';
+    else if (mode === 'formatted' || mode === 'sample') state.equationDisplay = 'sample';
     return Math.min(2000, Math.max(0, parseInt(q.get('epochs'), 10) || 0));
   }
 
