@@ -1,7 +1,7 @@
 /* Partial derivative lesson: an editable L(w, b), its two partial derivatives,
    a contour map of L with the downhill gradient, and two slices through the
    selected point (L vs w with b fixed, L vs b with w fixed). */
-import { analyse, editorHTML, wireEditor, renderTex, fmt, texNum } from './calculus-math.js';
+import { analyse, editorHTML, lessonHelpHTML, wireEditor, renderTex, fmt, texNum } from './calculus-math.js';
 import { createFunctionPlot, valueRange } from './calculus-plot.js';
 import { slopeSentence, tangentTex } from './calculus-derivative.js';
 import { createSurfacePlot, VIEWS } from './calculus-surface.js';
@@ -40,14 +40,17 @@ function sensitivity(dw, db) {
 
 export function mount(host) {
   host.innerHTML = `
-    <p>When a function has several inputs, a <strong>partial derivative</strong> is its slope along one input while the others stay fixed. Here <var>L</var>(<var>w</var>, <var>b</var>) = (2<var>w</var> + <var>b</var> − 3)² is the squared error of one neuron with input 2, weight <var>w</var>, bias <var>b</var> and target 3. Edit <var>L</var> to try any function of <var>w</var> and <var>b</var>.</p>
+    ${lessonHelpHTML('Partial derivative', `
+      <p>When a function has several inputs, a <strong>partial derivative</strong> is its slope along one input while the others stay fixed. Here <var>L</var>(<var>w</var>, <var>b</var>) = (2<var>w</var> + <var>b</var> − 3)² is the squared error of one neuron with input 2, weight <var>w</var>, bias <var>b</var> and target 3. Edit <var>L</var> to try any function of <var>w</var> and <var>b</var>.</p>
+      <p>The map and the 3D surface show the same <var>L</var>: the map from above, the surface from any angle. Click the map or the surface to choose a point. The two blue curves on the surface are the slices graphed below, each holding one input fixed.</p>
+      <p>Training uses every partial derivative at once. Gradient descent nudges each weight against its own slope, which moves the point downhill on this map.</p>
+    `)}
     ${editorHTML({ lhs: 'L(w, b)', value: '(2w + b - 3)^2', label: 'Function of w and b', examples: ['w^2 + b^2', 'w^2 - b^2', 'sin(w) cos(b)', '(w b - 1)^2'] })}
     <div class="calc-math" aria-live="polite">
       <div class="calc-eq-f"></div>
       <div class="calc-eq-df"></div>
       <div class="calc-eq-df"></div>
     </div>
-    <p>The map and the 3D surface show the same <var>L</var>: the map from above, the surface from any angle. Click the map or the surface to choose a point. The two blue curves on the surface are the slices graphed below, each holding one input fixed.</p>
     <div class="calc-partial-grid">
       <figure class="calc-map">
         <figcaption><strong>Contour map of L</strong><span>Stronger color means higher L. The arrow points downhill, along −∇L.</span></figcaption>
@@ -81,8 +84,7 @@ export function mount(host) {
       <p class="calc-gradient"><span class="calc-tex"></span></p>
       <p class="calc-plane"><span>Tangent plane:</span> <span class="calc-tex"></span></p>
       <p class="calc-meaning calc-meaning-g"></p>
-    </div>
-    <p>Training uses every partial derivative at once. Gradient descent nudges each weight against its own slope, which moves the point downhill on this map.</p>`;
+    </div>`;
 
   const mathBox = host.querySelector('.calc-math');
   const svg = host.querySelector('.calc-map svg');

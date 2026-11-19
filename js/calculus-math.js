@@ -289,6 +289,13 @@ export function analyse(input, vars) {
 }
 
 /* ---------- shared editor markup ---------- */
+export function lessonHelpHTML(title, content) {
+  return `<details class="calc-help">
+    <summary aria-label="${title} help">?</summary>
+    <div class="calc-help-body">${content}</div>
+  </details>`;
+}
+
 export function editorHTML({ lhs, value, examples = [], label }) {
   return `
     <div class="calc-editor">
