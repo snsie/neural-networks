@@ -146,7 +146,6 @@ import { wireCalculusDialog } from './calculus.js';
     state.epoch = 0;
     history = { train: [], test: [] };
     netViz.build({ H: net.H, L: net.L, O: net.O, K: net.K, actName: act.name, outMode: net.outMode });
-    updateOutChip();
     $('#hVal').textContent = state.H;
     $('#hMinus').disabled = state.H <= MIN_HIDDEN;
     $('#hPlus').disabled = state.H >= MAX_HIDDEN;
@@ -156,12 +155,6 @@ import { wireCalculusDialog } from './calculus.js';
     recordMetrics(true);
     refreshVisuals();
     renderWalk(true);
-  }
-
-  function updateOutChip() {
-    const sig = net.outMode === 'sigmoid';
-    const dots = Array.from({ length: net.K }, (_, k) => `<i style="background:var(--c${k})"></i>`).join('');
-    $('#outChip').innerHTML = `<span class="dots">${dots}</span><b>${net.O} neuron${net.O > 1 ? 's' : ''}</b> · ${sig ? 'sigmoid · binary cross-entropy' : 'softmax · cross-entropy'}`;
   }
 
   function randomTrainPoint() {
@@ -358,11 +351,17 @@ import { wireCalculusDialog } from './calculus.js';
       `<span class="${ok ? 'ok' : 'bad'}">${ok ? '✓ correct' : `✗ predicted ${CLASS_NAMES[pred]}`}</span>`;
   }
 
+  function setStepFocus(enabled) {
+    state.stepFocus = enabled;
+    const button = $('#stepFocus');
+    button.setAttribute('aria-pressed', enabled);
+    button.querySelector('.focus-state').textContent = enabled ? 'On' : 'Off';
+  }
+
   function goStep(i) {
     state.step = Math.max(0, Math.min(steps.length - 1, i));
     if (state.stepFocus === null) {
-      state.stepFocus = true;
-      $('#stepFocus').checked = true;
+      setStepFocus(true);
     }
     renderWalk(true);
     const list = $('#stepList');
@@ -508,8 +507,8 @@ import { wireCalculusDialog } from './calculus.js';
         renderWalk(true);
       });
     });
-    $('#stepFocus').addEventListener('change', e => {
-      state.stepFocus = e.target.checked;
+    $('#stepFocus').addEventListener('click', () => {
+      setStepFocus(!state.stepFocus);
       netViz.highlight(state.stepFocus ? steps[state.step]?.hl : null);
     });
     $('#prevStep').addEventListener('click', () => goStep(state.step - 1));

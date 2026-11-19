@@ -92,9 +92,11 @@
           <span>Hidden activation <strong id="activationName">ReLU</strong></span>
         </button>
       </div>
-      <div class="ctrl ctrl-out">
-        <span class="ctrl-label">Output layer <span class="muted">(set by dataset)</span></span>
-        <span id="outChip" class="out-chip"></span>
+      <div class="metrics">
+        <div class="metric"><span class="ctrl-label">Train loss</span><span id="mTrainLoss" class="mono metric-val">–</span></div>
+        <div class="metric"><span class="ctrl-label">Test loss</span><span id="mTestLoss" class="mono metric-val">–</span></div>
+        <div class="metric"><span class="ctrl-label">Train acc</span><span id="mTrainAcc" class="mono metric-val">–</span></div>
+        <div class="metric"><span class="ctrl-label">Test acc</span><span id="mTestAcc" class="mono metric-val">–</span></div>
       </div>
     </section>
 
@@ -124,14 +126,12 @@
       <section class="card col-net" aria-labelledby="netTitle">
         <div class="card-head">
           <h2 id="netTitle">Network</h2>
-          <label class="check step-focus"><input type="checkbox" role="switch" id="stepFocus" aria-controls="network"> Focus on step</label>
           <div class="legend">
             <span class="lg-line pos"></span>positive weight
             <span class="lg-line neg"></span>negative weight
           </div>
         </div>
         <div id="network"></div>
-        <p class="hint">Neuron tiles show outputs across the input plane. Hover a neuron or connection for values. Select a 1 square or its connection to explore the bias.</p>
       </section>
 
       <section class="card col-out" aria-labelledby="outTitle">
@@ -142,21 +142,19 @@
         <div class="boundary-wrap">
           <canvas id="boundary" aria-label="Decision boundary plot. Click a point to select it."></canvas>
         </div>
-        <div class="metrics">
-          <div class="metric"><span class="ctrl-label">Train loss</span><span id="mTrainLoss" class="mono metric-val">–</span></div>
-          <div class="metric"><span class="ctrl-label">Test loss</span><span id="mTestLoss" class="mono metric-val">–</span></div>
-          <div class="metric"><span class="ctrl-label">Train acc</span><span id="mTrainAcc" class="mono metric-val">–</span></div>
-          <div class="metric"><span class="ctrl-label">Test acc</span><span id="mTestAcc" class="mono metric-val">–</span></div>
-        </div>
         <div class="spark-wrap">
           <canvas id="spark" class="spark"></canvas>
           <div class="spark-legend"><span class="sl sl-train">train loss</span><span class="sl sl-test">test loss</span></div>
         </div>
-        <p class="hint">Click any point to trace it through the equations below. Filled dots are training data and hollow rings are test data.</p>
       </section>
       <section class="card walkthrough" aria-labelledby="walkTitle">
         <div class="walk-head">
-          <h2 id="walkTitle">Equation walkthrough</h2>
+          <div class="walk-heading">
+            <h2 id="walkTitle">Equation walkthrough</h2>
+            <button id="stepFocus" class="text-btn step-focus" type="button" aria-pressed="false" aria-controls="network">
+              Focus on step <span class="focus-state" aria-hidden="true">Off</span>
+            </button>
+          </div>
           <div class="walk-tools">
             <div id="sampleChip" class="sample-chip"></div>
             <button id="randSample" class="text-btn" title="Random sample">
