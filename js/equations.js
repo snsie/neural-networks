@@ -137,12 +137,20 @@
 
     add('loss', 'fwd', L + 2, 'Sample loss', [], () => {
       const p = probs[label];
-      const used = Math.max(p, 1e-12);
+      const scores = c.z[L];
       const term = binary ? (label === 1 ? T`\hat y` : T`1-\hat y`) : T`\hat y_{${label + 1}}`;
-      return trace('How much loss did this sample produce?', `Cross-entropy gets smaller as the model assigns more probability to the true class.${p < used ? ' For this calculation, the app floors the probability at 10⁻¹².' : ''}`, {
+      const margin = label === 1 ? -scores[0] : scores[0];
+      const shift = Math.max(...scores);
+      return trace('How much loss did this sample produce?', 'Cross-entropy gets smaller as the true class becomes more likely. The calculation uses output scores so it works even when the displayed probability rounds to zero or one.', {
         inputs: [{ label: 'True class from the input', text: classNames[label] }, value('True-class probability from prediction', p)],
-        sections: [section('Take the negative log', T`L=-\log(p_{\text{true}}),\qquad p_{\text{true}}=${term}`,
-          T`L=-\log(${number(used)})\approx${number(loss)}`)],
+        sections: [
+          section('Write the cross-entropy', T`L=-\log(p_{\text{true}}),\qquad p_{\text{true}}=${term}`),
+          binary
+            ? section('Calculate from the signed score', T`L=\max(0,s)+\log(1+e^{-|s|}),\quad s=(1-2y)z`,
+              T`s=${number(margin)},\qquad L\approx${number(loss)}`)
+            : section('Calculate from the shifted scores', T`L=(m-z_{\text{true}})+\log\sum_i e^{z_i-m},\quad m=\max_i z_i`,
+              T`m=${number(shift)},\quad z_{\text{true}}=${number(scores[label])},\qquad L\approx${number(loss)}`),
+        ],
         result: { label: 'Loss for this sample', math: number(loss), text: 'Backpropagation starts here and asks how changing the output score would change this loss.' },
         details: [detail('Show the full cross-entropy formula', binary
           ? T`L=-[y\log\hat y+(1-y)\log(1-\hat y)]`
@@ -180,7 +188,7 @@
           details: binary ? [detail('Why does this simplify to ŷ − y?', [
             T`\left(-\frac{y}{\hat y}+\frac{1-y}{1-\hat y}\right)\hat y(1-\hat y)`,
             T`=-y(1-\hat y)+(1-y)\hat y=\hat y-y`,
-          ], 'The probability factors cancel when the probability is strictly between 0 and 1. The model computes the simplified difference directly, including at numerical saturation.')]
+          ], 'The probability factors cancel when the probability is strictly between 0 and 1. For the positive class, the model uses the equivalent −σ(−z) to preserve small gradients.')]
             : [detail('Show the softmax derivation', [
               T`${d('\\hat y_m', 'z_k')}=\hat y_m\big(\mathbf{1}[m=k]-\hat y_k\big)`,
               T`${d('L', 'z_k')}=\sum_m\left(-\frac{y_m}{\hat y_m}\right)\hat y_m\big(\mathbf{1}[m=k]-\hat y_k\big)`,

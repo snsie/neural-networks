@@ -34,6 +34,7 @@
         </div>
       </div>
       <div class="header-actions">
+        <button id="openGuide" class="text-btn" type="button">Guided tour</button>
         <a class="text-btn exercise-link" href="./exercise.html">Student exercise</a>
         <button id="openCalculus" class="text-btn calculus-chip" type="button" aria-haspopup="dialog" aria-controls="calculusDialog">Calculus intro</button>
         <button id="themeToggle" class="icon-btn" title="Toggle light / dark" aria-label="Toggle light or dark theme">
@@ -60,18 +61,18 @@
           <span id="epochVal" class="mono epoch-val">0</span>
         </div>
       </div>
-      <div class="ctrl">
+      <div class="ctrl" data-advanced-controls>
         <label class="ctrl-label" for="lrSel">Learning rate</label>
         <select id="lrSel"></select>
       </div>
-      <div class="ctrl">
+      <div class="ctrl" data-advanced-controls>
         <label class="ctrl-label" for="optSel">Optimizer</label>
         <select id="optSel">
           <option value="adam">Adam</option>
           <option value="sgd">SGD</option>
         </select>
       </div>
-      <div class="hidden-controls">
+      <div class="hidden-controls" data-advanced-controls>
         <div class="ctrl">
           <span class="ctrl-label">Hidden layers</span>
           <div class="stepper">
@@ -163,6 +164,13 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3.5c4.5 0 5 10 9 10H20"/><path d="M4 17h3.5c.8 0 1.6-.4 2.2-1M14.3 8.3c.7-.8 1.4-1.3 2.2-1.3H20"/><path d="M17.5 4.5 20 7l-2.5 2.5M17.5 14.5 20 17l-2.5 2.5"/></svg>
                 <span>Random sample</span>
               </button>
+            </div>
+          </div>
+          <div id="firstRunGuide" class="first-run-guide" aria-label="Guided tour" role="group" hidden>
+            <p id="guidePrompt" aria-live="polite"></p>
+            <div class="guide-actions">
+              <button id="guideNext" class="nav-btn primary" type="button"></button>
+              <button id="guideSkip" class="text-btn" type="button">Skip tour</button>
             </div>
           </div>
           <div class="walk-navigation">

@@ -21,7 +21,7 @@
       this.O = classes === 2 ? 1 : classes;
       this.outMode = classes === 2 ? 'sigmoid' : 'softmax';
       this.act = act;
-      this.t = 0;
+      this.adamSteps = 0;
       this.sizes = [2, ...Array(layers).fill(hidden), this.O];
       const rng = Datasets.makeRng(seed);
       this.W = []; this.b = [];
@@ -87,12 +87,15 @@
     }
 
     loss(c, label) {
-      const eps = 1e-12;
+      const scores = c.z[this.L];
       if (this.outMode === 'sigmoid') {
-        const p = c.yhat[0];
-        return label === 1 ? -Math.log(Math.max(p, eps)) : -Math.log(Math.max(1 - p, eps));
+        const margin = label === 1 ? -scores[0] : scores[0];
+        return Math.max(0, margin) + Math.log1p(Math.exp(-Math.abs(margin)));
       }
-      return -Math.log(Math.max(c.yhat[label], eps));
+      const peak = scores.indexOf(Math.max(...scores));
+      const shift = scores[peak];
+      const rest = scores.reduce((sum, score, k) => k === peak ? sum : sum + Math.exp(score - shift), 0);
+      return (shift - scores[label]) + Math.log1p(rest);
     }
 
     /** Per-layer arrays: dz[l], dW[l], db[l] for l = 0..L; da[h], dadz[h] for hidden layers h = 0..L-1. */
@@ -101,7 +104,12 @@
       const t = this.target(label);
       const dz = new Array(L + 1), dW = new Array(L + 1), db = new Array(L + 1);
       const da = new Array(L), dadz = new Array(L);
-      dz[L] = c.yhat.map((p, k) => p - t[k]);
+      // Use the opposite tail for the true class to preserve small gradients.
+      dz[L] = this.outMode === 'sigmoid'
+        ? [label === 1 ? -sigmoid(-c.z[L][0]) : c.yhat[0]]
+        : c.yhat.map((p, k) => k === label
+          ? -c.yhat.reduce((sum, prob, j) => j === k ? sum : sum + prob, 0)
+          : p);
       for (let l = L; l >= 0; l--) {
         const inp = this.input(c, l);
         dW[l] = dz[l].map(d => inp.map(v => d * v));
@@ -147,9 +155,9 @@
     }
 
     applyGrads(g, scale, lr, optimizer) {
-      this.t++;
+      if (optimizer === 'adam') this.adamSteps++;
       const B1 = 0.9, B2 = 0.999, EPS = 1e-8;
-      const bc1 = 1 - Math.pow(B1, this.t), bc2 = 1 - Math.pow(B2, this.t);
+      const bc1 = 1 - Math.pow(B1, this.adamSteps), bc2 = 1 - Math.pow(B2, this.adamSteps);
       const upd = (P, G, M, V) => {
         for (let i = 0; i < P.length; i++) {
           const gi = G[i] * scale;

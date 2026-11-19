@@ -491,6 +491,64 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     renderWalk(false);
   }
 
+  function wireGuide() {
+    const guide = $('#firstRunGuide');
+    const prompt = $('#guidePrompt');
+    const next = $('#guideNext');
+    const open = $('#openGuide');
+    const advanced = document.querySelectorAll('[data-advanced-controls]');
+    const stages = [
+      { step: 'yhat', prompt: 'Start with the selected sample. See how the network turns its scores into a prediction.', action: 'See prediction' },
+      { step: 'loss', prompt: 'Compare the prediction with the sample’s true class.', action: 'Inspect loss' },
+      { step: 'update', prompt: 'Follow how this sample’s gradient would change one weight.', action: 'Preview weight update' },
+      { prompt: 'Try one training epoch and see how the prediction changes.', action: 'Train one epoch' },
+    ];
+    let stage = 0;
+
+    function showStage() {
+      prompt.textContent = stages[stage].prompt;
+      next.textContent = stages[stage].action;
+    }
+
+    function start() {
+      stage = 0;
+      guide.hidden = false;
+      advanced.forEach(control => { control.hidden = true; });
+      showStage();
+    }
+
+    function finish(focus) {
+      guide.hidden = true;
+      advanced.forEach(control => { control.hidden = false; });
+      try { localStorage.setItem('nnx-guide-seen', '1'); } catch { /* storage unavailable */ }
+      focus.focus();
+    }
+
+    open.addEventListener('click', () => {
+      start();
+      guide.scrollIntoView({ block: 'center' });
+      next.focus({ preventScroll: true });
+    });
+    $('#guideSkip').addEventListener('click', () => finish(open));
+    next.addEventListener('click', () => {
+      setPlaying(false);
+      const { step } = stages[stage];
+      if (!step) {
+        $('#stepBtn').click();
+        goStep(steps.findIndex(item => item.id === 'yhat'));
+        finish($('#stepTitle'));
+        return;
+      }
+      goStep(steps.findIndex(item => item.id === step));
+      stage++;
+      showStage();
+    });
+
+    let seen = false;
+    try { seen = localStorage.getItem('nnx-guide-seen') === '1'; } catch { /* storage unavailable */ }
+    if (!seen && !location.hash) start();
+  }
+
   /* ---------------- controls ---------------- */
   function wireControls() {
     const lrSel = $('#lrSel');
@@ -631,6 +689,7 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
       refreshVisuals();
       renderWalk(true);
     }
+    wireGuide();
     requestAnimationFrame(tick);
     // Re-render once web fonts are in so canvas labels use them.
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { updateActivation(); refreshVisuals(); });
