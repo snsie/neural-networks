@@ -124,6 +124,7 @@
       <section class="card col-net" aria-labelledby="netTitle">
         <div class="card-head">
           <h2 id="netTitle">Network</h2>
+          <label class="check step-focus"><input type="checkbox" role="switch" id="stepFocus" aria-controls="network"> Focus on step</label>
           <div class="legend">
             <span class="lg-line pos"></span>positive weight
             <span class="lg-line neg"></span>negative weight
@@ -167,7 +168,8 @@
               <button data-mode="formatted" role="tab">Formatted</button>
             </div>
           </div>
-        </div>        <nav id="stepList" class="step-list" aria-label="Walkthrough steps"></nav>
+        </div>
+        <nav id="stepList" class="step-list" aria-label="Walkthrough steps"></nav>
         <h3 id="stepTitle"></h3>
         <div id="equationBody" class="equation-body" role="region" aria-labelledby="stepTitle" tabindex="0">
           <div id="stepEq" class="step-eq" aria-live="polite"></div>

@@ -255,6 +255,18 @@ select:focus-visible, button:focus-visible, input:focus-visible {
 .col-out .metric { padding: 4px 6px; }
 .col-out .metrics { margin-top: 8px; }
 .col-out .spark-wrap { margin-top: 6px; }
+.step-focus { color: var(--text); font-size: 12px; font-weight: 600; }
+.step-focus input {
+  appearance: none; width: 28px; height: 16px; margin: 0;
+  border: 1px solid var(--faint); border-radius: 999px;
+  background: var(--surface-2); cursor: pointer;
+}
+.step-focus input::before {
+  content: ""; display: block; width: 10px; height: 10px; margin: 2px;
+  border-radius: 50%; background: var(--muted);
+}
+.step-focus input:checked { background: var(--accent); border-color: var(--accent); }
+.step-focus input:checked::before { transform: translateX(12px); background: #fff; }
 .col-net .hint { margin-top: 4px; }
 
 /* ---------- dataset grid ---------- */
@@ -333,7 +345,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .netviz.dir-bwd .edge-pulse { stroke: var(--bwd); }
 .netviz .edge-pulse.on { opacity: 1; animation: flow .9s linear infinite; }
 .netviz.dir-bwd .edge-pulse.on { animation-direction: reverse; }
-.netviz.focus .edge:not(.on) { opacity: .1; }
+.netviz.focus .edge:not(.on) { opacity: .35; }
 @keyframes flow { to { stroke-dashoffset: -12.5; } }
 
 .node {
@@ -383,7 +395,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .node--loss .node-val { left: 50%; top: auto; bottom: calc(100% + 7px); transform: translateX(-50%); }
 .node--hid .node-label { top: 50%; left: auto; right: calc(100% + 4px); transform: translateY(-50%); }
 
-.netviz.focus .node:not(.on) { opacity: .3; }
+.netviz.focus .node:not(.on) { opacity: .6; }
 .netviz.focus .node.on { box-shadow: 0 0 0 2px var(--fwd), 0 0 0 7px color-mix(in srgb, var(--fwd) 22%, transparent); }
 .netviz.focus.dir-bwd .node.on { box-shadow: 0 0 0 2px var(--bwd), 0 0 0 7px color-mix(in srgb, var(--bwd) 22%, transparent); }
 
@@ -455,40 +467,68 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 .step-list {
   --node-diameter: 22px;
-  --row-gap: 6px;
-  --node-gap: 22px;
+  --row-gap: 8px;
+  --slot-width: 52px;
+  overflow-x: auto;
+  padding: 2px 0 3px;
+}
+.timeline-grid {
   display: grid;
-  justify-content: start;
+  width: max-content;
+  grid-template-columns: var(--pass-label-width, 101px) repeat(var(--slots), var(--slot-width));
+  grid-template-rows: auto repeat(2, var(--node-diameter));
   row-gap: var(--row-gap);
-  padding: 2px 23px 2px 0;
+  padding: 0 8px 7px 0;
+  isolation: isolate;
 }
-.timeline-row { display: grid; grid-template-columns: 104px auto; align-items: center; }
-.timeline-label { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .01em; }
+.timeline-band {
+  grid-row: 1 / 4;
+  margin: 0 2px -5px;
+  padding: 4px 2px 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--band-color, var(--muted)) 13%, var(--surface));
+  color: var(--text);
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.15;
+  z-index: -1;
+}
+.timeline-band[data-region="hidden"] { --band-color: #4d99d8; }
+.timeline-band[data-region="output"] { --band-color: #43af9d; }
+.timeline-band[data-region="loss"] { --band-color: #e1a453; }
+.timeline-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  position: relative;
+  isolation: isolate;
+}
+.timeline-row.fwd { grid-row: 2; }
+.timeline-row.bwd { grid-row: 3; }
+.timeline-label { grid-column: 1; color: var(--muted); font-size: 11.5px; font-weight: 600; }
 .timeline-label span { margin-inline-start: 3px; opacity: .7; }
-.timeline-track {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--node-gap);
-  position: relative; isolation: isolate;
+.timeline-row::before {
+  content: ""; grid-column: 2 / -1; grid-row: 1;
+  margin-inline: calc(var(--slot-width) / 2);
+  border-top: 2px solid var(--faint); z-index: -1;
 }
-.timeline-track::before {
+.timeline-row.fwd::after {
   content: ""; position: absolute; z-index: -1;
-  inset-inline: calc(var(--node-diameter) / 2);
-  top: calc(50% - 1px); border-top: 2px solid var(--border);
-}
-.timeline-row.bwd .timeline-track { flex-direction: row-reverse; }
-.timeline-row.fwd .timeline-track::after {
-  content: ""; position: absolute; z-index: -1;
-  right: -14px; top: calc(50% - 1px);
-  width: 16px; height: calc(var(--node-diameter) + var(--row-gap) + 2px);
+  right: calc(var(--slot-width) / 2 - 20px); top: calc(50% - 1px);
+  width: 20px; height: calc(var(--node-diameter) + var(--row-gap) + 2px);
   border: 2px solid var(--faint); border-left: 0; border-radius: 0 9px 9px 0;
 }
-.timeline-row.bwd .timeline-track::after {
+.timeline-row.bwd::after {
   content: ""; position: absolute;
-  right: -17px; bottom: calc(100% - var(--node-diameter) / 2);
+  right: calc(var(--slot-width) / 2 - 24px); bottom: calc(100% - var(--node-diameter) / 2);
   width: 8px; height: 8px;
   border: solid var(--muted); border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
 .step-item {
+  grid-row: 1; justify-self: center;
   width: var(--node-diameter); height: var(--node-diameter);
   padding: 0; border: 1.5px solid var(--faint); border-radius: 50%;
   background: var(--surface); color: var(--muted); font: 600 10px var(--mono);
@@ -621,14 +661,12 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   .walk-tools { gap: 5px; }
   .sample-chip { flex-wrap: wrap; }
   .walk-tools .text-btn, .seg button { padding-inline: 8px; }
-  .timeline-row { grid-template-columns: 92px auto; }
-  .step-list { --node-gap: 14px; }
+  .step-list { --pass-label-width: 88px; --slot-width: 40px; }
   .timeline-label { font-size: 11px; }
   .eq-legend { gap: 7px; font-size: 11px; }
 }
 @media (max-width: 370px) {
-  .timeline-row { grid-template-columns: 76px auto; }
-  .step-list { --node-diameter: 20px; --node-gap: 8px; }
+  .step-list { --pass-label-width: 74px; --node-diameter: 20px; --slot-width: 35px; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #randSample span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }

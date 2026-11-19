@@ -21,7 +21,7 @@ import { wireCalculusDialog } from './calculus.js';
     dsId: 'circle', noise: 0.1, seed: 1, initSeed: 1,
     H: 1, L: 1, actId: 'relu', lr: 0.03, optimizer: 'adam',
     playing: false, epoch: 0, showTest: true,
-    mode: 'formatted', step: 0,
+    mode: 'formatted', step: 0, stepFocus: null,
   };
 
   let data, train, test, net, grid, pal, sample, cur, steps = [];
@@ -233,37 +233,64 @@ import { wireCalculusDialog } from './calculus.js';
   }
 
   function renderTimeline() {
-    const sig = JSON.stringify(steps.map(({ phase, title }) => [phase, title]));
+    const sig = JSON.stringify(steps.map(({ phase, band, title }) => [phase, band, title]));
     const list = $('#stepList');
     if (sig !== stepListSig) {
       const focusedIndex = list.contains(document.activeElement) ? document.activeElement.dataset.i : null;
       stepListSig = sig;
-      list.replaceChildren();
-      let phase, track;
-      steps.forEach((step, i) => {
-        if (step.phase !== phase) {
-          phase = step.phase;
-          const row = document.createElement('div');
-          row.className = `timeline-row ${phase}`;
-          const label = document.createElement('span');
-          label.className = 'timeline-label';
-          label.innerHTML = phase === 'fwd'
-            ? 'Forward pass <span aria-hidden="true">→</span>'
-            : 'Backward pass <span aria-hidden="true">←</span>';
-          track = document.createElement('div');
-          track.className = 'timeline-track';
-          row.append(label, track);
-          list.append(row);
-        }
-        const button = document.createElement('button');
-        button.className = 'step-item';
-        button.dataset.i = i;
-        button.textContent = i + 1;
-        button.title = step.title;
-        button.setAttribute('aria-label', `Step ${i + 1}. ${step.title}`);
-        button.addEventListener('click', () => goStep(i));
-        track.append(button);
+      const grid = document.createElement('div');
+      grid.className = 'timeline-grid';
+      const titles = [
+        'Input / update',
+        ...Array.from({ length: net.L }, (_, i) => net.L === 1 ? 'Hidden layer' : `Hidden ${i + 1}`),
+        'Output path',
+        'Loss / error',
+      ];
+      const positions = [];
+      let column = 2; // The first column holds the pass labels.
+      titles.forEach((title, band) => {
+        const indices = phase => steps.flatMap((step, i) => step.phase === phase && step.band === band ? [i] : []);
+        const forward = indices('fwd');
+        const backward = indices('bwd');
+        const width = Math.max(forward.length, backward.length);
+        forward.forEach((i, offset) => { positions[i] = column + offset; });
+        backward.forEach((i, offset) => { positions[i] = column + width - 1 - offset; });
+
+        const shade = document.createElement('div');
+        shade.className = 'timeline-band';
+        shade.dataset.region = band === 0 ? 'endpoints' : band <= net.L ? 'hidden' : band === net.L + 1 ? 'output' : 'loss';
+        shade.style.gridColumn = `${column} / span ${width}`;
+        shade.textContent = title;
+        grid.append(shade);
+        column += width;
       });
+      grid.style.setProperty('--slots', column - 2);
+
+      for (const phase of ['fwd', 'bwd']) {
+        const row = document.createElement('div');
+        row.className = `timeline-row ${phase}`;
+        const label = document.createElement('span');
+        label.className = 'timeline-label';
+        label.innerHTML = phase === 'fwd'
+          ? 'Forward pass <span aria-hidden="true">→</span>'
+          : 'Backward pass <span aria-hidden="true">←</span>';
+        row.append(label);
+        steps.forEach((step, i) => {
+          if (step.phase !== phase) return;
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'step-item';
+          button.dataset.i = i;
+          button.style.gridColumn = positions[i];
+          button.textContent = i + 1;
+          button.title = step.title;
+          button.setAttribute('aria-label', `Step ${i + 1}. ${step.title}`);
+          button.addEventListener('click', () => goStep(i));
+          row.append(button);
+        });
+        grid.append(row);
+      }
+      list.replaceChildren(grid);
       if (focusedIndex != null) list.querySelectorAll('.step-item')[focusedIndex]?.focus();
     }
     list.querySelectorAll('.step-item').forEach((button, i) => {
@@ -316,7 +343,7 @@ import { wireCalculusDialog } from './calculus.js';
     $('#prevStep').disabled = state.step === 0;
     $('#nextStep').disabled = state.step === steps.length - 1;
 
-    netViz.highlight(s.hl);
+    netViz.highlight(state.stepFocus ? s.hl : null);
     netViz.setValues(nodeValues(s));
     renderSampleChip();
   }
@@ -333,7 +360,17 @@ import { wireCalculusDialog } from './calculus.js';
 
   function goStep(i) {
     state.step = Math.max(0, Math.min(steps.length - 1, i));
+    if (state.stepFocus === null) {
+      state.stepFocus = true;
+      $('#stepFocus').checked = true;
+    }
     renderWalk(true);
+    const list = $('#stepList');
+    const selected = list.querySelector('[aria-current="step"]');
+    const viewport = list.getBoundingClientRect();
+    const button = selected.getBoundingClientRect();
+    if (button.left < viewport.left) list.scrollLeft += button.left - viewport.left - 8;
+    else if (button.right > viewport.right) list.scrollLeft += button.right - viewport.right + 8;
   }
 
   function biasDestination(l, j) {
@@ -471,6 +508,10 @@ import { wireCalculusDialog } from './calculus.js';
         renderWalk(true);
       });
     });
+    $('#stepFocus').addEventListener('change', e => {
+      state.stepFocus = e.target.checked;
+      netViz.highlight(state.stepFocus ? steps[state.step]?.hl : null);
+    });
     $('#prevStep').addEventListener('click', () => goStep(state.step - 1));
     $('#nextStep').addEventListener('click', () => goStep(state.step + 1));
     wireCalculusDialog();
@@ -502,15 +543,19 @@ import { wireCalculusDialog } from './calculus.js';
       if (timelineStep && ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
         const i = +timelineStep.dataset.i;
         const forward = steps[i].phase === 'fwd';
+        const buttons = [...$('#stepList').querySelectorAll('.step-item')];
+        const paired = buttons.find(button => steps[+button.dataset.i].phase !== steps[i].phase &&
+          button.style.gridColumn === timelineStep.style.gridColumn);
         const next = {
           ArrowRight: i + (forward ? 1 : -1),
           ArrowLeft: i + (forward ? -1 : 1),
-          ArrowDown: forward && steps[i + 1]?.phase === 'bwd' ? i + 1 : i,
-          ArrowUp: !forward && steps[i - 1]?.phase === 'fwd' ? i - 1 : i,
+          ArrowDown: forward ? paired?.dataset.i : null,
+          ArrowUp: forward ? null : paired?.dataset.i,
         }[e.key];
         e.preventDefault();
-        goStep(next);
-        $('#stepList').querySelectorAll('.step-item')[state.step].focus();
+        if (next == null) return;
+        goStep(+next);
+        buttons[state.step].focus({ preventScroll: true });
         return;
       }
       const tag = e.target.tagName;

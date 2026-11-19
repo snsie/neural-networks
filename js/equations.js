@@ -54,7 +54,7 @@
 
     // input
     steps.push({
-      id: 'input', phase: 'fwd', title: 'Input sample', short: 'x, y',
+      id: 'input', band: 0, phase: 'fwd', title: 'Input sample', short: 'x, y',
       blocks: F ? [
         `\\mathbf{x} = ${col([val(c.x[0]), val(c.x[1])])}`,
         sig ? `y = ${label} \\quad (${cname(label)})`
@@ -80,7 +80,7 @@
       }
       const first = l === 0;
       steps.push({
-        id: `z${l + 1}`, phase: 'fwd', title: `${layerName(l)}: weighted sum`,
+        id: `z${l + 1}`, band: l + 1, phase: 'fwd', title: `${layerName(l)}: weighted sum`,
         short: `z${usup(l + 1)} = W${usup(l + 1)}${inText(l)} + b${usup(l + 1)}`,
         blocks: F ? [
           `\\mathbf{z}${s} = ${mat(Wl.map(r => r.map(par)))}\\,${col(inp.map(val))} + ${col(bl.map(par))} = ${col(c.z[l].map(val))}`,
@@ -102,7 +102,7 @@
       const arows = [];
       for (let j = 0; j < H; j++) arows.push(`a${s}_{${n1(j)}} &= ${chain(act.subF(c.z[l][j]), val(c.a[l][j]), c.a[l][j])}`);
       steps.push({
-        id: `a${l + 1}`, phase: 'fwd', title: `${layerName(l)}: ${act.name} activation`,
+        id: `a${l + 1}`, band: l + 1, phase: 'fwd', title: `${layerName(l)}: ${act.name} activation`,
         short: `a${usup(l + 1)} = f(z${usup(l + 1)})`,
         blocks: F ? [
           `f(z) = ${act.texF}`,
@@ -128,7 +128,7 @@
         rows.push(`z${So}_{${n1(k)}} &= ${terms} ${signed(bL[k], par)} = ${val(zo[k])}`);
       }
       steps.push({
-        id: 'zout', phase: 'fwd', title: 'Output layer: weighted sum', short: `z${usup(L + 1)} = W${usup(L + 1)}a${usup(L)} + b${usup(L + 1)}`,
+        id: 'zout', band: L + 1, phase: 'fwd', title: 'Output layer: weighted sum', short: `z${usup(L + 1)} = W${usup(L + 1)}a${usup(L)} + b${usup(L + 1)}`,
         blocks: F ? [
           `\\mathbf{z}${So} = ${mat(WL.map(r => r.map(par)))}\\,${col(aL.map(val))} + ${col(bL.map(par))} = ${col(zo.map(val))}`,
           aligned(rows),
@@ -150,7 +150,7 @@
     if (sig) {
       const p = c.yhat[0];
       steps.push({
-        id: 'yhat', phase: 'fwd', title: 'Prediction: sigmoid', short: `ŷ = σ(z${usup(L + 1)})`,
+        id: 'yhat', band: L + 1, phase: 'fwd', title: 'Prediction: sigmoid', short: `ŷ = σ(z${usup(L + 1)})`,
         blocks: F ? [
           `\\sigma(z) = \\frac{1}{1+e^{-z}}`,
           `\\hat{y} = \\frac{1}{1+e^{-${P(zo[0])}}} = ${val(p)}`,
@@ -168,7 +168,7 @@
       const sum = ex.reduce((a, b) => a + b, 0);
       const rows = zo.map((z, k) => `\\hat{y}_{${n1(k)}} &= \\frac{e^{${f3(z)}}}{${f3(sum)}} = \\frac{${f3(ex[k])}}{${f3(sum)}} = ${val(c.yhat[k])} \\quad (${cname(k)})`);
       steps.push({
-        id: 'yhat', phase: 'fwd', title: 'Prediction: softmax', short: `ŷ = softmax(z${usup(L + 1)})`,
+        id: 'yhat', band: L + 1, phase: 'fwd', title: 'Prediction: softmax', short: `ŷ = softmax(z${usup(L + 1)})`,
         blocks: F ? [
           `\\hat{y}_k = \\frac{e^{z${So}_k}}{\\sum_{m=1}^{${O}} e^{z${So}_m}}, \\qquad \\sum_{m} e^{z_m} = ${zo.map(z => `e^{${f3(z)}}`).join(' + ')} = ${f3(sum)}`,
           aligned(rows),
@@ -187,7 +187,7 @@
     if (sig) {
       const p = c.yhat[0];
       steps.push({
-        id: 'loss', phase: 'fwd', title: 'Loss: binary cross-entropy', short: 'L(ŷ, y)',
+        id: 'loss', band: L + 2, phase: 'fwd', title: 'Loss: binary cross-entropy', short: 'L(ŷ, y)',
         blocks: F ? [
           `L = -\\big[\\, ${label} \\cdot \\log(${val(p)}) + ${1 - label} \\cdot \\log(${val(1 - p)}) \\,\\big]`,
           `L = ${label === 1 ? `-\\log(${f3(p)})` : `-\\log(${f3(1 - p)})`} = ${val(Lval)}`,
@@ -201,7 +201,7 @@
     } else {
       const terms = c.yhat.map((p, k) => `${g.t[k]} \\cdot \\log(${val(p)})`).join(' + ');
       steps.push({
-        id: 'loss', phase: 'fwd', title: 'Loss: categorical cross-entropy', short: 'L(ŷ, y)',
+        id: 'loss', band: L + 2, phase: 'fwd', title: 'Loss: categorical cross-entropy', short: 'L(ŷ, y)',
         blocks: F ? [
           `L = -\\big[\\, ${terms} \\,\\big]`,
           `L = -\\log(${f3(c.yhat[label])}) = ${val(Lval)}`,
@@ -223,7 +223,7 @@
       const p = c.yhat[0];
       const dLdy = -label / p + (1 - label) / (1 - p);
       steps.push({
-        id: 'dzout', phase: 'bwd', title: 'Output error', short: `δ${usup(L + 1)} = ŷ − y`,
+        id: 'dzout', band: L + 2, phase: 'bwd', title: 'Output error', short: `δ${usup(L + 1)} = ŷ − y`,
         blocks: F ? [
           `${dfrac('L', '\\hat{y}')} = -\\frac{y}{\\hat{y}} + \\frac{1-y}{1-\\hat{y}} = -\\frac{${label}}{${f3(p)}} + \\frac{${1 - label}}{${f3(1 - p)}} = ${grd(dLdy)}`,
           `${dfrac('\\hat{y}', `z${So}`)} = \\sigma'(z${So}) = \\hat{y}\\,(1-\\hat{y}) = ${f3(p)} \\cdot ${f3(1 - p)} = ${val(p * (1 - p))}`,
@@ -239,7 +239,7 @@
     } else {
       const rows = c.yhat.map((p, k) => `\\delta${So}_{${n1(k)}} &= ${f3(p)} - ${g.t[k]} = ${grd(dzo[k])}`);
       steps.push({
-        id: 'dzout', phase: 'bwd', title: 'Output error', short: `δ${usup(L + 1)} = ŷ − y`,
+        id: 'dzout', band: L + 2, phase: 'bwd', title: 'Output error', short: `δ${usup(L + 1)} = ŷ − y`,
         blocks: F ? [
           `${dfrac('\\hat{y}_m', 'z_k')} = \\hat{y}_m\\big([m{=}k] - \\hat{y}_k\\big), \\qquad ${dfrac('L', '\\hat{y}_m')} = -\\frac{y_m}{\\hat{y}_m}`,
           `${dfrac('L', 'z_k')} = \\sum_m -\\frac{y_m}{\\hat{y}_m}\\,\\hat{y}_m\\big([m{=}k] - \\hat{y}_k\\big) = \\hat{y}_k \\textstyle\\sum_m y_m - y_k = \\hat{y}_k - y_k`,
@@ -265,7 +265,7 @@
         : rowsFor(0);
       const multi = l !== 0 && d.length > 1;
       return {
-        id: `dW${l + 1}`, phase: 'bwd', title: isOut ? 'Output-layer gradients' : L === 1 ? 'Hidden-layer gradients' : `${layerName(l)} gradients`,
+        id: `dW${l + 1}`, band: l + 1, phase: 'bwd', title: isOut ? 'Output-layer gradients' : L === 1 ? 'Hidden-layer gradients' : `${layerName(l)} gradients`,
         short: `∂L/∂W${usup(l + 1)} = δ${usup(l + 1)}${inText(l)}ᵀ`,
         blocks: F ? [
           `${dfrac('L', `W${s}`)} = ${col(d.map(grd))}\\,${mat([inp.map(val)])} = ${mat(g.dW[l].map(r => r.map(grd)))}, \\qquad ${dfrac('L', `\\mathbf{b}${s}`)} = ${col(g.db[l].map(grd))}`,
@@ -297,7 +297,7 @@
       }
       const nOut = g.dz[l].length;
       steps.push({
-        id: `da${l}`, phase: 'bwd', title: `Send the error back to the ${layerLower(h)}`,
+        id: `da${l}`, band: l + 1, phase: 'bwd', title: `Send the error back to the ${layerLower(h)}`,
         short: `∂L/∂a${usup(l)} = W${usup(l + 1)}ᵀδ${usup(l + 1)}`,
         blocks: F ? [
           `${dfrac('L', `\\mathbf{a}${sh}`)} = W^{(${l + 1})\\top}\\boldsymbol{\\delta}${sl} = ${mat(transpose(net.W[l]).map(r => r.map(par)))}\\,${col(g.dz[l].map(grd))} = ${col(g.da[h].map(grd))}`,
@@ -319,7 +319,7 @@
           ` &\\qquad \\delta${sh}_{${n1(j)}} &= ${grdP(g.da[h][j])} \\cdot ${valP(g.dadz[h][j])} = ${grd(g.dz[h][j])}`);
       }
       steps.push({
-        id: `dz${l}`, phase: 'bwd', title: `Back through the ${act.name} activation${L > 1 ? ` (layer ${l})` : ''}`,
+        id: `dz${l}`, band: l, phase: 'bwd', title: `Back through the ${act.name} activation${L > 1 ? ` (layer ${l})` : ''}`,
         short: `δ${usup(l)} = ∂L/∂a ⊙ ∂a/∂z`,
         blocks: F ? [
           `${dfrac('a', 'z')} = f'(z) = ${act.texDf}, \\qquad \\delta${sh}_j = ${dfrac('L', `a${sh}_j`)} \\cdot f'\\big(z${sh}_j\\big)`,
@@ -347,7 +347,7 @@
       }
       const params = Array.from({ length: L + 1 }, (_, l) => `W${S(l + 1)},\\, \\mathbf{b}${S(l + 1)}`).join(',\\, ');
       steps.push({
-        id: 'update', phase: 'bwd', title: 'Gradient descent update', short: 'θ ← θ − η ∂L/∂θ',
+        id: 'update', band: 0, phase: 'bwd', title: 'Gradient descent update', short: 'θ ← θ − η ∂L/∂θ',
         blocks: F ? blocks : [
           `\\theta \\leftarrow \\theta - \\eta\\, ${dfrac('L', '\\theta')}, \\qquad \\theta \\in \\{\\, ${params} \\,\\}`,
           optimizer === 'adam'
