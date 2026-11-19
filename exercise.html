@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Health Data Exhibit | Neural Network Explorer</title>
+  <meta name="description" content="A paired exercise in building an interactive health-data website with a neural network and a WebGPU chatbot.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/exercise.css">
+  <script>
+    try { var t = localStorage.getItem('nnx-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+  </script>
+</head>
+<body class="exercise">
+  <header class="exercise-header">
+    <a href="./index.html">← Neural Network Explorer</a>
+    <span>Paired exercise · Teams of two</span>
+  </header>
+
+  <main class="exercise-main">
+    <section class="exercise-hero" aria-labelledby="exercise-title">
+      <div>
+        <h1 id="exercise-title">Build an interactive health data exhibit</h1>
+        <p>Train a neural network, turn its predictions into something visitors can explore, and build a browser-based chatbot to answer questions about what your model learned.</p>
+        <a class="exercise-cta" href="#ideas">Choose a project idea <span aria-hidden="true">↓</span></a>
+      </div>
+      <figure class="example-chat">
+        <figcaption>Example · Wearable Activity Detective</figcaption>
+        <p class="chat-question">Why did the model guess walking?</p>
+        <p class="chat-answer">In this example, walking and climbing stairs produced similar acceleration patterns. View the sensor traces side by side to see where they overlap.</p>
+      </figure>
+    </section>
+
+    <nav class="exercise-nav" aria-label="Exercise sections">
+      <a href="#ideas">Project ideas</a>
+      <a href="#build">Build steps</a>
+      <a href="#partners">Pair roles</a>
+      <a href="#submit">Submission</a>
+    </nav>
+
+    <section id="ideas" aria-labelledby="ideas-heading">
+      <h2 id="ideas-heading">Pick a question worth exploring</h2>
+      <p>Start with one of these ideas or propose your own. Use public or synthetic data and credit the source.</p>
+      <div class="idea-grid">
+        <article class="idea">
+          <h3>Wearable Activity Detective</h3>
+          <p>Can a neural network tell walking from stair climbing? Let visitors guess from an accelerometer trace, reveal the prediction, and explore a mistake.</p>
+          <span>Classification · Wearable data</span>
+        </article>
+        <article class="idea">
+          <h3>Clinic Wait-Time Simulator</h3>
+          <p>How do staffing and queue size affect wait times? Let visitors adjust a simulated clinic and see how the predicted wait changes.</p>
+          <span>Regression · Synthetic data</span>
+        </article>
+        <article class="idea">
+          <h3>Readmission Threshold Lab</h3>
+          <p>What happens when you flag more discharges for follow-up? Let visitors move a threshold slider and see how many readmissions the model catches or misses.</p>
+          <span>Classification · Synthetic data</span>
+        </article>
+      </div>
+    </section>
+
+    <section id="build" aria-labelledby="build-heading">
+      <h2 id="build-heading">Build your exhibit</h2>
+      <ol class="build-steps">
+        <li>
+          <h3>Train and evaluate a small neural network</h3>
+          <p>Define what the model takes in and what it predicts. Keep a test set separate from training and tuning. Compare the network with a simple baseline on that test set, such as the most frequent activity or the median training wait time. Pick one mistake and explain what might have helped.</p>
+        </li>
+        <li>
+          <h3>Design one meaningful interaction</h3>
+          <p>Give visitors a way to reveal, filter, or compare predictions. You can export held-out predictions for a static gallery. If a visitor enters new inputs, run the trained model on those inputs. Aim for one clear discovery the visitor can make.</p>
+        </li>
+        <li>
+          <h3>Add a WebGPU chatbot</h3>
+          <p>Use a small pretrained language model with <a href="https://webllm.mlc.ai/docs/user/get_started.html">WebLLM</a> to run chat inference in the browser. Write a short guide with the site’s purpose, data, model inputs, test results, and limitations. Pass that guide to the chatbot as context and ask it to say when the guide lacks an answer.</p>
+          <p>Check WebGPU on the device you’ll demo with. Let visitors choose <strong>Enable chat</strong> before loading the model, show loading progress, and keep the exhibit usable if chat can’t load.</p>
+          <details>
+            <summary>Three questions to test your chatbot</summary>
+            <ul>
+              <li><strong>Data:</strong> Where did your data come from?</li>
+              <li><strong>Results:</strong> How did your model compare with the baseline?</li>
+              <li><strong>Outside the guide:</strong> How well did this model work on a dataset you never tested?</li>
+            </ul>
+            <p>Check each answer against your site and revise any unsupported claims.</p>
+          </details>
+        </li>
+      </ol>
+    </section>
+
+    <section id="partners" aria-labelledby="partners-heading">
+      <h2 id="partners-heading">Split the work, then review together</h2>
+      <div class="pair-grid">
+        <article class="idea">
+          <h3>Model and evaluation lead</h3>
+          <p>Prepare the data, train the neural network, and compare it with the baseline. During review, test the chatbot’s answers against your results.</p>
+        </article>
+        <article class="idea">
+          <h3>Website and chatbot lead</h3>
+          <p>Build the visitor interaction and integrate the chat widget. During review, walk your partner through the highlighted model mistake.</p>
+        </article>
+      </div>
+      <p>Write the site guide together. Both partners should be ready to explain a prediction and demonstrate how they checked a chatbot answer.</p>
+    </section>
+
+    <section id="submit" class="submission" aria-labelledby="submit-heading">
+      <h2 id="submit-heading">What to submit</h2>
+      <ul>
+        <li>A website link that opens directly to your exhibit.</li>
+        <li>A link to the website source and the notebook or script used to train and evaluate the neural network.</li>
+        <li>A short note with both partners’ contributions, your held-out result and baseline, and what you found when testing the chatbot.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
