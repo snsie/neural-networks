@@ -4,14 +4,7 @@
   'use strict';
 
   const T = String.raw;
-  const { f3 } = Activations;
-  const number = v => {
-    if (v !== 0 && Math.abs(v) < 0.001) {
-      const [m, e] = v.toExponential(2).split('e');
-      return T`${m}\times10^{${+e}}`;
-    }
-    return v > 0.9995 && v < 1 ? String(v) : f3(v);
-  };
+  const { number } = Activations;
   const signed = v => v < 0 ? T`\big(${number(v)}\big)` : number(v);
   const S = n => T`^{(${n})}`;
   const d = (a, b) => T`\frac{\partial ${a}}{\partial ${b}}`;
@@ -25,6 +18,43 @@
   const trace = (title, intro, options) => ({ title, intro, ...options });
   const nodes = (nodeIds, edgeIds = [], dir = 'fwd') => ({ nodeIds, edgeIds, dir });
   const indices = a => a.map((_, i) => i);
+
+  const product = (left, right) => T`${signed(left)}\times${signed(right)}`;
+  const expFromShift = (score, max) => T`e^{${number(score)}-${signed(max)}}`;
+
+  function productSum(factors, result) {
+    const sumRows = (terms, perLine, lead) => {
+      const rows = [];
+      for (let i = 0; i < terms.length; i += perLine) {
+        rows.push(`${i === 0 ? lead : T`&\quad +`} ${terms.slice(i, i + perLine).join(' + ')}`);
+      }
+      return rows;
+    };
+    const rows = [
+      ...sumRows(factors.map(([a, b]) => product(a, b)), 2, '&'),
+      ...sumRows(factors.map(([a, b]) => signed(a * b)), 4, T`&\approx`),
+      T`&\approx ${number(result)}`,
+    ];
+    return T`\begin{aligned}${rows.join(T` \\ `)}\end{aligned}`;
+  }
+
+  function evaluated(lhs, parts, result) {
+    const answer = number(result);
+    const last = parts.at(-1);
+    const chain = last === answer || Number(last) === result ? parts : [...parts, answer];
+    return T`${lhs}=${chain.join(T`\approx`)}`;
+  }
+
+  function sigmoidFraction(z, exponential) {
+    return T`\frac{${z < 0 ? exponential : '1'}}{1+${exponential}}`;
+  }
+
+  function sigmoidWork(z, result, negative = false) {
+    const expression = sigmoidFraction(z, T`e^{-${number(Math.abs(z))}}`);
+    const evaluated = sigmoidFraction(z, number(Math.exp(-Math.abs(z))));
+    const sign = negative ? '-' : '';
+    return T`${sign}${expression}\approx${sign}${evaluated}\approx${number(result)}`;
+  }
 
   function build({ net, cache: c, grads: g, label, lr, optimizer, classNames }) {
     const { L, O, act } = net;
@@ -71,6 +101,7 @@
       const s = S(l + 1);
       const x = l === 0 ? 'x_i' : T`a${S(l)}_i`;
       const a = l === 0 ? T`\mathbf{x}` : T`\mathbf{a}${S(l)}`;
+      const factors = inputs.map((x, i) => [weights[i], x]).concat([[b, 1]]);
       const zLabel = l === L ? 'Output score z (logit)' : 'Pre-activation z';
       return trace(l === L ? 'How does the output neuron compute its score?' : 'How does this neuron combine its inputs?',
         'Multiply each incoming value by its connection weight, then add the bias. You can think of the bias as a weight on a constant input of 1. The square marks that bias on the diagram.', {
@@ -80,8 +111,7 @@
             ...inputs.map((x, i) => [sourceName(l, i), value('', x), value('', weights[i]), value('', weights[i] * x)]),
             ['Bias square', item('', '1'), value('', b), value('', b)],
           ])],
-          after: [section('Add the contributions', null,
-            T`${inputs.map((x, i) => signed(weights[i] * x)).concat(signed(b)).join(' + ')}\approx${number(z)}`)],
+          after: [section('Add the contributions', null, productSum(factors, z))],
           result: { label: zLabel, math: number(z), text: l === L ? 'Prediction converts this score into a probability.' : `${act.name} uses this value in the next step.` },
           details: [
             detail('Show all neuron scores', T`\mathbf{z}${s}=${column(c.z[l])}`),
@@ -102,7 +132,7 @@
         const branch = act.id === 'relu' ? (z > 0 ? ' This score is positive, so ReLU passes it through.' : ' At this score, ReLU outputs zero.') : '';
         return trace(`What does ${act.name} do to the score?`, `Apply the same function to each neuron independently.${branch}`, {
           inputs: [value('Pre-activation z from weighted sum', z)],
-          sections: [section('Apply the activation', T`a=f(z)=${act.texF}`, T`a=f(${number(z)})\approx${number(a)}`)],
+          sections: [section('Apply the activation', T`a=f(z)=${act.texF}`, evaluated(T`a=f(${number(z)})`, act.subF(z), a))],
           plot: { z, a, act, slope: false },
           result: { label: 'Activation a', math: number(a), text: 'This becomes an input to the next layer.' },
           details: [detail('Show all neuron activations', T`\mathbf{a}${S(l + 1)}=${column(c.a[l])}`)],
@@ -116,6 +146,7 @@
       const logits = c.z[L], p = c.yhat[k];
       const shift = Math.max(...logits), terms = logits.map(z => Math.exp(z - shift));
       const total = terms.reduce((sum, x) => sum + x, 0);
+      const denominator = logits.map(z => expFromShift(z, shift)).join(' + ');
       const probabilityTable = table(binary ? ['Class', 'Probability'] : ['Class', 'Score z', 'Probability'],
         classNames.slice(0, net.K).map((name, i) => [i === pred ? `${name} (predicted)` : name,
           ...(binary ? [] : [value('', logits[i])]), value('', probs[i])]), binary ? pred : k);
@@ -123,12 +154,15 @@
         binary ? 'Sigmoid turns the single score into the probability of class 1. The other class gets the remaining probability.'
           : 'Softmax converts all class scores together. Each class uses the same denominator, so changing one score can affect all probabilities.', {
           inputs: [value(binary ? 'Output score z' : `Score z · ${classNames[k]}`, logits[k])],
-          sections: binary ? [section('Apply sigmoid', T`\hat y=\sigma(z)=\frac{1}{1+e^{-z}}`, T`\hat y=\frac{1}{1+e^{-${signed(logits[0])}}}\approx${number(p)}`)] :
-            [section('Normalize across classes', T`\hat y_k=\frac{e^{z_k-m}}{\sum_i e^{z_i-m}}\quad(m=\max_i z_i)`, T`\hat y_{${k + 1}}=\frac{${number(terms[k])}}{${number(total)}}\approx${number(p)}`)],
+          sections: binary ? [section('Apply sigmoid', T`\hat y=\sigma(z)=${logits[0] < 0 ? T`\frac{e^z}{1+e^z}` : T`\frac{1}{1+e^{-z}}`}`, T`\hat y=${sigmoidWork(logits[0], p)}`)] :
+            [section('Normalize across classes', T`\hat y_k=\frac{e^{z_k-m}}{D},\quad D=\sum_i e^{z_i-m},\; m=\max_i z_i`, [
+              T`D=${denominator}\approx${number(total)}`,
+              T`\hat y_{${k + 1}}=\frac{${expFromShift(logits[k], shift)}}{D}\approx\frac{${number(terms[k])}}{${number(total)}}\approx${number(p)}`,
+            ])],
           tables: [probabilityTable],
           details: binary ? [] : [detail('Show the shared denominator', [
             T`m=\max_k z_k=${number(shift)}`,
-            T`\sum_i e^{z_i-m}\approx${terms.map(number).join(' + ')}\approx${number(total)}`,
+            T`\sum_i e^{z_i-m}=\,${denominator}\approx${terms.map(number).join(' + ')}\approx${number(total)}`,
           ], 'Subtracting the same maximum score from every score keeps the exponentials numerically stable and leaves the probabilities unchanged.')],
           result: { label: 'Predicted class', text: `${classNames[pred]} has the highest probability. The next step uses the probability of the true class.` },
           hl: nodes([node(L, k)]), vals: { out: display(c.yhat, 'ŷ') },
@@ -141,15 +175,27 @@
       const term = binary ? (label === 1 ? T`\hat y` : T`1-\hat y`) : T`\hat y_{${label + 1}}`;
       const margin = label === 1 ? -scores[0] : scores[0];
       const shift = Math.max(...scores);
-      return trace('How much loss did this sample produce?', 'Cross-entropy gets smaller as the true class becomes more likely. The calculation uses output scores so it works even when the displayed probability rounds to zero or one.', {
+      const peak = scores.indexOf(shift);
+      const otherScores = scores.filter((_, k) => k !== peak);
+      const rest = otherScores.reduce((sum, score) => sum + Math.exp(score - shift), 0);
+      return trace('How much loss did this sample produce?', binary ? 'Cross-entropy gets smaller as the true class becomes more likely. We calculate it from the score so it still works when the probability rounds to zero or one.'
+        : 'Shift all scores by the maximum m. The maximum contributes 1 because e⁰ = 1. Add the remaining exponentials to get R.', {
         inputs: [{ label: 'True class from the input', text: classNames[label] }, value('True-class probability from prediction', p)],
         sections: [
           section('Write the cross-entropy', T`L=-\log(p_{\text{true}}),\qquad p_{\text{true}}=${term}`),
           binary
             ? section('Calculate from the signed score', T`L=\max(0,s)+\log(1+e^{-|s|}),\quad s=(1-2y)z`,
-              T`s=${number(margin)},\qquad L\approx${number(loss)}`)
-            : section('Calculate from the shifted scores', T`L=(m-z_{\text{true}})+\log\sum_i e^{z_i-m},\quad m=\max_i z_i`,
-              T`m=${number(shift)},\quad z_{\text{true}}=${number(scores[label])},\qquad L\approx${number(loss)}`),
+              [
+                T`s=(1-2\times${label})\times${signed(scores[0])}\approx${number(margin)}`,
+                T`L=\max(0,${number(margin)})+\log(1+e^{-|${number(margin)}|})`,
+                T`\phantom{L}\approx${number(Math.max(0, margin))}+\log(1+${number(Math.exp(-Math.abs(margin)))})\approx${number(loss)}`,
+              ])
+            : section('Calculate from the shifted scores', T`L=(m-z_{\text{true}})+\log(1+R),\quad R=\sum_{i\ne i_{\max}}e^{z_i-m}`,
+              [
+                T`R=${otherScores.map(score => expFromShift(score, shift)).join(' + ')}\approx${number(rest)}`,
+                T`L=(${number(shift)}-${signed(scores[label])})+\log(1+R)`,
+                T`\phantom{L}\approx${number(shift - scores[label])}+\log(1+${number(rest)})\approx${number(loss)}`,
+              ]),
         ],
         result: { label: 'Loss for this sample', math: number(loss), text: 'Backpropagation starts here and asks how changing the output score would change this loss.' },
         details: [detail('Show the full cross-entropy formula', binary
@@ -165,20 +211,32 @@
       const p = c.yhat[k], y = g.t[k], delta = g.dz[L][k];
       const lossSlope = y === 1 ? -1 / p : 1 / (1 - p), sigmoidSlope = p * (1 - p);
       const saturated = p === 0 || p === 1 || !Number.isFinite(lossSlope);
+      const subtraction = T`${number(p)}-${y}\approx${number(delta)}`;
+      const stableBinary = y === 1 ? sigmoidWork(-c.z[L][0], delta, true) : sigmoidWork(c.z[L][0], delta);
+      const otherProbabilities = c.yhat.filter((_, i) => i !== k);
+      const trueClassSum = T`-\big(${otherProbabilities.map(number).join(' + ')}\big)`;
       return trace('How does loss change with the output score?',
         binary ? (saturated ? 'The probability is at numerical saturation. The model uses the combined rule to avoid dividing by a probability at the limit.' : 'Trace the slope from loss to probability, then from probability to the score.')
           : 'Each score can affect all the softmax probabilities. With cross-entropy, the combined gradient for a class simplifies to its probability minus its target.', {
           inputs: [value('Predicted probability from prediction', p), value('Target from input', y)],
           sections: binary && !saturated ? [
             section('1. How does loss respond to the probability?', T`${d('L', '\\hat y')}=-\frac{y}{\hat y}+\frac{1-y}{1-\hat y}`,
-              T`${y === 1 ? T`-\frac{1}{${number(p)}}` : T`\frac{1}{${number(1 - p)}}`}\approx${number(lossSlope)}`),
+              [
+                T`-\frac{${y}}{${number(p)}}+\frac{1-${y}}{1-${number(p)}}`,
+                T`\approx ${y === 1 ? T`-\frac{1}{${number(p)}}` : T`\frac{1}{${number(1 - p)}}`}\approx${number(lossSlope)}`,
+              ]),
             section('2. How does probability respond to the score?', T`${d('\\hat y', `z${so}`)}=\hat y(1-\hat y)`,
-              T`${number(p)}\times${number(1 - p)}\approx${number(sigmoidSlope)}`),
+              T`${number(p)}\times(1-${number(p)})\approx${product(p, 1 - p)}\approx${number(sigmoidSlope)}`),
             section('3. Multiply the two slopes', T`\delta${so}=${d('L', `z${so}`)}=${d('L', '\\hat y')}\cdot${d('\\hat y', `z${so}`)}`,
               T`\underbrace{${signed(lossSlope)}}_{\text{Step 1}}\times\underbrace{${number(sigmoidSlope)}}_{\text{Step 2}}\approx${number(delta)}`),
           ] : [section(binary ? 'Use the combined rule at saturation' : 'Subtract the target from the probability',
-            T`\delta${so}${binary ? '' : '_k'}=\hat y${binary ? '' : '_k'}-y${binary ? '' : '_k'}`,
-            T`${number(p)}-${y}\approx${number(delta)}`)],
+            binary
+              ? T`\delta${so}=\hat y-y=${y === 1 ? T`-\sigma(-z${so})` : T`\sigma(z${so})`}`
+              : T`\delta${so}_k=\hat y_k-y_k`,
+            binary ? stableBinary : y === 0 ? subtraction : [
+              ...(p === 1 ? [] : [subtraction]),
+              T`\delta${so}_k=-\sum_{i\ne k}\hat y_i\approx ${trueClassSum}\approx${number(delta)}`,
+            ])],
           tables: binary ? [] : [table(['Class', 'Probability', 'Target', 'Gradient δ'],
             c.yhat.map((prob, i) => [i === label ? `${classNames[i]} (true)` : classNames[i],
               value('', prob), item('', String(g.t[i])), value('', g.dz[L][i])]), k)],
@@ -207,7 +265,7 @@
         return trace('How sensitive is loss to this weight and bias?', 'The connection weight scales its source value. The bias weight scales the constant 1.', {
           inputs: [value('Destination score gradient δ', delta), value(`Source value · ${sourceName(l, i)}`, x)],
           sections: [
-            section('Weight gradient · destination gradient × source value', T`${d('L', `w${s}_{ji}`)}=\delta${s}_j\cdot${l === 0 ? 'x_i' : T`a${S(l)}_i`}`, T`${signed(delta)}\times${signed(x)}\approx${number(g.dW[l][j][i])}`),
+            section('Weight gradient · destination gradient × source value', T`${d('L', `w${s}_{ji}`)}=\delta${s}_j\cdot ${l === 0 ? 'x_i' : T`a${S(l)}_i`}`, T`${signed(delta)}\times${signed(x)}\approx${number(g.dW[l][j][i])}`),
             section('Bias gradient · destination gradient × 1', T`${d('L', `b${s}_j`)}=\delta${s}_j\cdot 1`, T`${signed(delta)}\times1=${number(g.db[l][j])}`),
           ],
           result: { label: 'Parameter gradients', text: 'These two gradients tell the update step how sensitive the loss is to this weight and bias.' },
@@ -222,12 +280,13 @@
       if (l === 0) continue;
       const h = l - 1, sh = S(l);
       add(`da${l}`, 'bwd', l + 1, `Back to ${layer(h).toLowerCase()}`, [choice(h)], j => {
-        const nextGrad = g.dz[l], terms = nextGrad.map((delta, k) => net.W[l][k][j] * delta);
+        const nextGrad = g.dz[l];
+        const factors = nextGrad.map((delta, k) => [net.W[l][k][j], delta]);
         return trace('How does the gradient reach this hidden activation?', 'Trace the outgoing connections backward. Each connected neuron sends back its gradient multiplied by that connection’s weight.', {
           sections: [section('Add the contributions from the next layer', T`${d('L', `a${sh}_j`)}=\sum_k w${s}_{kj}\delta${s}_k`)],
           tables: [table(['Next neuron', 'Weight', 'Score gradient δ', 'Contribution'],
-            nextGrad.map((delta, k) => [neuronName(l, k), value('', net.W[l][k][j]), value('', delta), value('', terms[k])]))],
-          after: [section('Sum the weighted contributions', null, T`${terms.map(signed).join(' + ')}\approx${number(g.da[h][j])}`)],
+            nextGrad.map((delta, k) => [neuronName(l, k), value('', net.W[l][k][j]), value('', delta), value('', factors[k][0] * delta)]))],
+          after: [section('Sum the weighted contributions', null, productSum(factors, g.da[h][j]))],
           result: { label: 'Activation gradient ∂L/∂a', math: number(g.da[h][j]), text: 'Next, multiply by the activation’s slope to reach this neuron’s score.' },
           details: [detail('Show matrix form', [
             T`${d('L', T`\mathbf{a}${sh}`)}=(W${s})^\top\boldsymbol{\delta}${s}`,
@@ -242,7 +301,7 @@
         return trace(`How does the gradient pass through ${act.name}?`, 'Evaluate the slope at the same score used in the forward pass, then multiply by the incoming gradient.', {
           inputs: [value('Pre-activation z from the forward pass', z), value('Incoming activation gradient ∂L/∂a', incoming)],
           sections: [
-            section('Evaluate the local slope', T`f'(z)=${act.texDf}`, T`f'(${number(z)})\approx${number(slope)}`),
+            section('Evaluate the local slope', T`f'(z)=${act.texDf}`, evaluated(T`f'(${number(z)})`, act.subDf(z), slope)),
             section('Multiply by the incoming gradient', T`\delta${sh}_j=${d('L', `a${sh}_j`)}\cdot f'(z${sh}_j)`, T`${signed(incoming)}\times${number(slope)}\approx${number(delta)}`),
           ],
           plot: { z, a: c.a[h][j], act, slope: true, rate: slope, rateMath: number(slope) },
@@ -267,8 +326,12 @@
           const after = before + change;
           return trace('How would this parameter update?', `This one-sample SGD example uses the selected sample’s gradient and current learning rate. Training uses ${optimizer === 'adam' ? 'Adam' : 'SGD'} with mini-batches.`, {
             inputs: [value('Current parameter', before), value('Gradient for this sample', gradient), value('Learning rate η', lr)],
-            sections: [section('Calculate the signed change', T`\Delta\theta=-\eta\frac{\partial L}{\partial\theta}`, T`-${number(lr)}\times${signed(gradient)}\approx${number(change)}`)],
-            result: { label: 'Example new parameter', math: T`${number(before)}+${signed(change)}\approx${number(after)}`,
+            sections: [
+              section('Calculate the signed change', T`\Delta\theta=-\eta\frac{\partial L}{\partial\theta}`, T`${product(-lr, gradient)}\approx${number(change)}`),
+              section('Apply the change to the parameter', T`\theta_{\text{new}}=\theta_{\text{old}}+\Delta\theta`,
+                T`${number(before)}+${signed(change)}\approx${number(after)}`),
+            ],
+            result: { label: 'Example new parameter', math: number(after),
               text: 'The worked example leaves the network parameters in place.' },
             details: [detail(`How training updates parameters with ${optimizer === 'adam' ? 'Adam' : 'SGD'}`, [
               T`g_{\text{batch}}=\frac{1}{B}\sum_{i=1}^{B}g_i`,

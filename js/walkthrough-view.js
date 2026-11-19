@@ -20,7 +20,7 @@ function renderSection({ label, rule, worked }, tex) {
     const line = element('div', 'trace-line');
     line.dataset.equationMode = mode;
     line.append(element('span', 'trace-caption', heading));
-    addMath(line, source, tex, true);
+    for (const expression of [source].flat()) addMath(line, expression, tex, true);
     lines.append(line);
   }
   el.append(lines);
