@@ -1,3 +1,4 @@
+import { renderMath } from './math-tips.js';
 /* Shared symbolic math for the calculus lessons: parsing student input,
    differentiating it with mathjs, typesetting it, and fast evaluation.
    This module (and mathjs) loads only when a calculus lesson opens. */
@@ -104,13 +105,7 @@ export const texNum = v => {
 };
 
 export function renderTex(el, tex) {
-  if (window.katex) {
-    try {
-      window.katex.render(tex, el, { throwOnError: false, displayMode: false });
-      return;
-    } catch { /* fall through to plain text */ }
-  }
-  el.textContent = tex;
+  renderMath(el, tex, false, el.closest('[data-lesson]').dataset.lesson);
 }
 
 /* ---------- display ---------- */
@@ -299,7 +294,7 @@ export function lessonHelpHTML(title, content) {
 export function editorHTML({ lhs, value, examples = [], label }) {
   return `
     <div class="calc-editor">
-      <label class="calc-input"><span class="calc-lhs">${lhs} =</span>
+      <label class="calc-input"><span class="calc-lhs">${lhs.replace(/[A-Za-z]/g, symbol => `<var>${symbol}</var>`)} =</span>
         <input type="text" spellcheck="false" autocomplete="off" autocapitalize="off" value="${value}" aria-label="${label}">
       </label>
       ${examples.length ? `<p class="calc-hint">Try ${examples.map(e => `<button type="button" class="calc-example mono">${e}</button>`).join(' ')}</p>` : ''}

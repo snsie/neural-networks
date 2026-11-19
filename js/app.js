@@ -1,3 +1,4 @@
+import { addPlainMathTips, renderMath as tex, wireMathTips } from './math-tips.js';
 /* App state, UI wiring, and the training loop. */
 import { wireCalculusDialog } from './calculus.js';
 import { wireFullEquation } from './full-equation.js';
@@ -31,20 +32,7 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
   let lastEqKey = '', lastStepId = '', stepListSig = '', choicesSig = '';
   const traceSelection = new Map();
 
-  /* ---------------- KaTeX helper ---------------- */
-  function tex(el, s, display = true) {
-    if (window.katex) {
-      try {
-        katex.render(s, el, {
-          displayMode: display, throwOnError: false, strict: 'ignore',
-          trust: ctx => ctx.command === '\\htmlClass',
-        });
-        return;
-      } catch (e) { /* fall through */ }
-    }
-    el.textContent = s;
-    el.classList.add('eq-fallback');
-  }
+  wireMathTips();
 
   /* ---------------- visual components ---------------- */
   const boundary = new BoundaryViz($('#boundary'), {
@@ -120,8 +108,8 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
     Draw.activation($('#actPlot'), act, pal);
     const t = $('#actTex');
     t.innerHTML = '<div></div><div></div>';
-    tex(t.children[0], `f(z) = ${act.texF}`);
-    tex(t.children[1], `f'(z) = \\frac{\\partial a}{\\partial z} = ${act.texDf}`);
+    tex(t.children[0], `f(z) = ${act.texF}`, true);
+    tex(t.children[1], `f'(z) = \\frac{\\partial a}{\\partial z} = ${act.texDf}`, true);
     $('#actBlurb').textContent = act.blurb;
   }
 
@@ -624,6 +612,7 @@ import { renderTrace, renderDetails } from './walkthrough-view.js';
 
     const lossChip = $('#openLossComparison');
     const lossDialog = $('#lossComparisonDialog');
+    addPlainMathTips(lossDialog, 'lossComparison');
     lossChip.addEventListener('click', () => lossDialog.showModal());
     lossDialog.addEventListener('close', () => lossChip.focus());
 

@@ -1,3 +1,4 @@
+import { addPlainMathTips } from './math-tips.js';
 /* Partial derivative lesson: an editable L(w, b), its two partial derivatives,
    a contour map of L with the downhill gradient, and two slices through the
    selected point (L vs w with b fixed, L vs b with w fixed). */
@@ -86,6 +87,7 @@ export function mount(host) {
       <p class="calc-meaning calc-meaning-g"></p>
     </div>`;
 
+  addPlainMathTips(host, 'partial');
   const mathBox = host.querySelector('.calc-math');
   const svg = host.querySelector('.calc-map svg');
   const values = host.querySelector('.calc-values');
@@ -256,6 +258,7 @@ export function mount(host) {
     surface.setPoint({ w, b, L, dw, db });
 
     values.innerHTML = `At (<var>w</var>, <var>b</var>) = (<strong>${fmt(w)}</strong>, <strong>${fmt(b)}</strong>): <span class="calc-val-f"><var>L</var> = <strong>${fmt(L)}</strong></span>, <span class="calc-val-df">∂<var>L</var>/∂<var>w</var> = <strong>${fmt(dw)}</strong></span>, <span class="calc-val-df">∂<var>L</var>/∂<var>b</var> = <strong>${fmt(db)}</strong></span>`;
+    addPlainMathTips(values, 'partial');
     const defined = [L, dw, db].every(Number.isFinite);
     gradient.hidden = !defined;
     plane.hidden = !defined;

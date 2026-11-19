@@ -32,7 +32,7 @@ export function backwardTerms({ L, sizes, O }, { l, j, i }) {
     terms.push([weight(n + 1, next, index), `da${n}`]);
     index = next;
   }
-  terms.push([O === 1 ? T`(\hat y-y)` : T`(\hat y_{${index}}-y_{${index}})`, 'dzout', { l: h, j: k }]);
+  terms.push([O === 1 ? T`(\hat y-y)` : T`(\hat y_{${index}}-y_{${index}})`, 'dzout']);
   if (l < L) terms.push([T`\Big]`.repeat(L - l)]);
   terms.push([T`\,\cdot\,`], [
     l === 0 ? T`x_{${i + 1}}` : nodeValue('a', l, i + 1), `dW${layer}`,
@@ -142,7 +142,6 @@ export function wireFullEquation({ tex, goToStep, getSteps }) {
       if (step) {
         element.type = 'button';
         element.className = 'formula-term';
-        element.title = labels.get(step);
         // Keep the math in the accessible name and announce where the button leads.
         element.setAttribute('aria-description', `Open walkthrough step: ${labels.get(step)}`);
         element.addEventListener('click', () => {
@@ -151,6 +150,7 @@ export function wireFullEquation({ tex, goToStep, getSteps }) {
         });
       }
       tex(element, math, false);
+      if (step && !element.dataset.mathTip) element.title = labels.get(step);
       return element;
     }));
   }

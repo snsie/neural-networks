@@ -1,3 +1,4 @@
+import { addPlainMathTips } from './math-tips.js';
 /* Derivative lesson: an editable function y(x), its symbolic derivative, and an
    overlaid plot of y and dy/dx with a tangent line at a selected point. */
 import { analyse, editorHTML, lessonHelpHTML, wireEditor, renderTex, fmt, texNum } from './calculus-math.js';
@@ -38,6 +39,7 @@ export function mount(host) {
       <p class="calc-meaning"></p>
     </div>`;
 
+  addPlainMathTips(host, 'derivative');
   const mathBox = host.querySelector('.calc-math');
   const values = host.querySelector('.calc-values');
   const tangent = host.querySelector('.calc-tangent');
@@ -47,6 +49,7 @@ export function mount(host) {
   function readout(x) {
     const y = model.fn(x), m = model.d.x.fn(x);
     values.innerHTML = `At <var>x</var> = <strong>${fmt(x)}</strong>: <span class="calc-val-f"><var>y</var> = <strong>${fmt(y)}</strong></span>, <span class="calc-val-df"><var>dy/dx</var> = <strong>${fmt(m)}</strong></span>`;
+    addPlainMathTips(values, 'derivative');
     const defined = Number.isFinite(y) && Number.isFinite(m);
     tangent.hidden = !defined;
     if (defined) {

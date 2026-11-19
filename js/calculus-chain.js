@@ -1,3 +1,4 @@
+import { addPlainMathTips } from './math-tips.js';
 import { analyse, differentiate, substitute, toTex, editorHTML, lessonHelpHTML, wireEditor, renderTex, fmt } from './calculus-math.js';
 import { createFunctionPlot, sample } from './calculus-plot.js';
 
@@ -66,6 +67,7 @@ export function mount(host) {
       <div class="calc-chain-z"></div>
     </div>`;
 
+  addPlainMathTips(host, 'chain');
   const mathBox = host.querySelector('.calc-math');
   const graph = host.querySelector('.calc-graph');
   const runButton = graph.querySelector('.calc-run');
