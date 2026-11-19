@@ -12,7 +12,6 @@ const factor = node => {
   return n.isOperatorNode && ['add', 'subtract', 'unaryMinus'].includes(n.fn) ? `\\left(${tex}\\right)` : tex;
 };
 const pn = v => (v < 0 ? `(${fmt(v)})` : fmt(v));
-const tag = (kind, text) => `<span class="calc-tag calc-tag-${kind}">${text}</span>`;
 
 function graphHTML() {
   return `
@@ -45,7 +44,7 @@ export function mount(host) {
     ${lessonHelpHTML('Chain rule', `
       <p>The value of <var>x</var> determines <var>y</var>, which determines <var>z</var>. Substituting the first function into the second gives the full composition. The chain rule gives its derivative by multiplying the slope of each step at the corresponding input.</p>
       <p>Select <strong>Trace the derivative</strong> to start at <var>dz/dz</var> = 1 and multiply by each slope as the trace moves left. The final value is the slope of the composed curve.</p>
-      <p>Change Δ<var>x</var> to see how a small change travels through the two steps. The dashed line follows the tangent estimate. The hollow dot shows the exact endpoint on the curve. Select a point in the <var>y</var> vs. <var>x</var> or <var>z</var> vs. <var>x</var> plot to change <var>x</var>.</p>
+      <p>Select a point in the <var>y</var> vs. <var>x</var> or <var>z</var> vs. <var>x</var> plot to change <var>x</var>.</p>
     `)}
     <div class="calc-chain-editors">
       ${editorHTML({ lhs: 'y(x)', value: '2x + 1', label: 'Inner step: y as a function of x', examples: ['x^2', 'sin(x)', 'tanh(x)'] })}
@@ -62,19 +61,6 @@ export function mount(host) {
     </div>
     ${graphHTML()}
     <div class="calc-chain-c"></div>
-    <section class="calc-nudge-panel" aria-label="Follow a nudge through the chain">
-      <h4>Follow a small change</h4>
-      <label class="calc-nudge-control">
-        <span>Nudge ${tag('x', 'Δx')} = <output>0.25</output></span>
-        <input type="range" min="0.05" max="1" step="0.05" value="0.25" aria-label="Size of the nudge Δx">
-      </label>
-      <div class="calc-nudge-grid">
-        <div class="calc-nudge-step"><div class="calc-mini-y"></div><p></p></div>
-        <div class="calc-nudge-step"><div class="calc-mini-z"></div><p></p></div>
-        <div class="calc-nudge-step"><div class="calc-mini-c"></div><p></p></div>
-      </div>
-      <p class="calc-nudge-sum"></p>
-    </section>
     <div class="calc-chain-grid">
       <div class="calc-chain-y"></div>
       <div class="calc-chain-z"></div>
@@ -84,10 +70,6 @@ export function mount(host) {
   const graph = host.querySelector('.calc-graph');
   const runButton = graph.querySelector('.calc-run');
   const note = graph.querySelector('.calc-graph-note');
-  const slider = host.querySelector('.calc-nudge-control input');
-  const sliderOut = host.querySelector('.calc-nudge-control output');
-  const steps = host.querySelectorAll('.calc-nudge-step p');
-  const sum = host.querySelector('.calc-nudge-sum');
   const [innerBlock, outerBlock] = host.querySelectorAll('.calc-editor');
 
   let inner = null, outer = null;
@@ -110,30 +92,6 @@ export function mount(host) {
     caption: '<strong>z vs. x · Composed function</strong>',
     onSelect: v => { x = v; refresh(); },
   });
-
-  // Zoomed views for the nudge: each follows the point and frames its own triangle.
-  const mini = (sel, xName, fName, caption) => createFunctionPlot(host.querySelector(sel), {
-    xName, fName, width: 320, height: 230, compact: true, interactive: false,
-    showDerivative: false, legend: false, caption,
-  });
-  const miniY = mini('.calc-mini-y', 'x', 'y', '<strong>1. Through y(x)</strong>');
-  const miniZ = mini('.calc-mini-z', 'y', 'z', '<strong>2. Through z(y)</strong>');
-  const miniC = mini('.calc-mini-c', 'x', 'z', '<strong>3. Both at once</strong>');
-
-  // Frame a nudge from x0 by dx (rise dy) with a little of the curve on each side.
-  function frame(plot, fn, dfn, x0, dx, dy, nudge) {
-    const half = Math.max(Math.abs(dx) * 0.95, 0.08);
-    const mid = x0 + dx / 2;
-    const xRange = [mid - half, mid + half];
-    const y0 = fn(x0);
-    const ys = sample(fn, xRange, 60).concat([y0, y0 + dy]).filter(Number.isFinite);
-    let lo = Math.min(...ys), hi = Math.max(...ys);
-    if (hi - lo < 1e-6) { lo -= 0.5; hi += 0.5; }
-    const pad = (hi - lo) * 0.22;
-    plot.setFunctions(fn, dfn, { xRange, yRange: [lo - pad, hi + pad] });
-    plot.setX(x0);
-    plot.setNudge(nudge);
-  }
 
   const y = v => inner.fn(v);
   const dydx = v => inner.d.x.fn(v);
@@ -163,7 +121,7 @@ export function mount(host) {
   }
   runButton.addEventListener('click', runBackward);
 
-  // Write the current numbers into the diagram, the nudge steps and the plots.
+  // Write the current numbers into the diagram.
   function fill() {
     if (!(innerOK && outerOK)) return;
     const yv = y(x), zv = z(x), a = dydx(x), c = dzdy(yv), m = a * c;
@@ -182,26 +140,7 @@ export function mount(host) {
 
     runButton.textContent = stage === 3 ? 'Replay the trace' : 'Trace the derivative';
     note.textContent = ['', 'dz/dz = 1', `dz/dy = ${fmt(c)}`, `dz/dx = ${fmt(m)}`][stage];
-
-    const dx = slider.valueAsNumber;
-    sliderOut.value = fmt(dx);
-    const dy = a * dx, dz = c * dy, actual = z(x + dx) - zv;
-    const defined = [yv, zv, a, c].every(Number.isFinite);
-    if (!defined) {
-      steps.forEach(p => { p.textContent = ''; });
-      sum.textContent = 'Choose an x where both functions and their slopes are defined.';
-      return;
-    }
-    steps[0].innerHTML = `${tag('y', 'Δy')} ≈ ${pn(a)} × ${fmt(dx)} = <strong>${fmt(dy, 3)}</strong>`;
-    steps[1].innerHTML = `${tag('z', 'Δz')} ≈ ${pn(c)} × ${pn(dy)} = <strong>${fmt(dz, 3)}</strong>`;
-    steps[2].innerHTML = `${tag('z', 'Δz')} ≈ ${pn(m)} × ${fmt(dx)} = <strong>${fmt(dz, 3)}</strong>`;
-    sum.textContent = Number.isFinite(actual) ? `Exact Δz: ${fmt(actual, 3)}` : '';
-
-    frame(miniY, y, dydx, x, dx, dy, { dx, dy, xKind: 'x', yKind: 'y', xLabel: 'Δx', yLabel: 'Δy' });
-    frame(miniZ, outer.fn, dzdy, yv, dy, dz, { dx: dy, dy: dz, xKind: 'y', yKind: 'z', xLabel: 'Δy', yLabel: 'Δz' });
-    frame(miniC, z, dzdx, x, dx, dz, { dx, dy: dz, xKind: 'x', yKind: 'z', xLabel: 'Δx', yLabel: 'Δz' });
   }
-  slider.addEventListener('input', fill);
 
   /* ---------- symbolic work and plots ---------- */
   function rebuild() {
