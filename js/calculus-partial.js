@@ -3,7 +3,8 @@
    selected point (L vs w with b fixed, L vs b with w fixed). */
 import { analyse, editorHTML, wireEditor, renderTex, fmt, texNum } from './calculus-math.js';
 import { createFunctionPlot, valueRange } from './calculus-plot.js';
-import { slopeSentence } from './calculus-derivative.js';
+import { slopeSentence, tangentTex } from './calculus-derivative.js';
+import { createSurfacePlot, VIEWS } from './calculus-surface.js';
 
 const W_RANGE = [-1, 3];
 const B_RANGE = [-2, 2];
@@ -46,22 +47,39 @@ export function mount(host) {
       <div class="calc-eq-df"></div>
       <div class="calc-eq-df"></div>
     </div>
-    <p>Click or drag on the map to choose a point. Each slice graph shows <var>L</var> along one input, with the other held at the chosen point.</p>
+    <p>The map and the 3D surface show the same <var>L</var>: the map from above, the surface from any angle. Click the map or the surface to choose a point. The two blue curves on the surface are the slices graphed below, each holding one input fixed.</p>
     <div class="calc-partial-grid">
       <figure class="calc-map">
         <figcaption><strong>Contour map of L</strong><span>Stronger color means higher L. The arrow points downhill, along −∇L.</span></figcaption>
         <svg viewBox="0 0 ${MW} ${MH}" tabindex="0" role="slider" aria-roledescription="2D slider" aria-label="Point (w, b). Left and right arrows change w; up and down arrows change b."></svg>
       </figure>
-      <div class="calc-slices">
-        <div class="calc-slice-w"></div>
-        <div class="calc-slice-b"></div>
-      </div>
+      <figure class="calc-surface">
+        <figcaption><strong>Surface of L</strong><span>Drag to rotate. Click the surface to choose a point.</span></figcaption>
+        <div class="calc-surface-host"></div>
+        <div class="calc-surface-tools">
+          <div class="calc-views" role="group" aria-label="Viewing angle">
+            ${Object.entries(VIEWS).map(([id, v]) => `<button type="button" class="calc-example" data-view="${id}">${v.label}</button>`).join('')}
+          </div>
+          <label class="calc-toggle"><input type="checkbox" checked> Tangent plane</label>
+        </div>
+        <div class="calc-legend calc-surface-legend" aria-hidden="true">
+          <span class="lg lg-f">slices</span>
+          <span class="lg lg-tan">tangent lines</span>
+          <span class="lg lg-plane">tangent plane</span>
+          <span class="lg lg-arrow">−∇L</span>
+        </div>
+      </figure>
+    </div>
+    <div class="calc-slices">
+      <div class="calc-slice-w"></div>
+      <div class="calc-slice-b"></div>
     </div>
     <div class="calc-readout" role="status">
       <p class="calc-values"></p>
       <p class="calc-meaning calc-meaning-w"></p>
       <p class="calc-meaning calc-meaning-b"></p>
       <p class="calc-gradient"><span class="calc-tex"></span></p>
+      <p class="calc-plane"><span>Tangent plane:</span> <span class="calc-tex"></span></p>
       <p class="calc-meaning calc-meaning-g"></p>
     </div>
     <p>Training uses every partial derivative at once. Gradient descent nudges each weight against its own slope, which moves the point downhill on this map.</p>`;
@@ -73,12 +91,14 @@ export function mount(host) {
   const meaningB = host.querySelector('.calc-meaning-b');
   const gradient = host.querySelector('.calc-gradient');
   const meaningG = host.querySelector('.calc-meaning-g');
+  const plane = host.querySelector('.calc-plane');
 
   let model = null;
   let w = 1, b = 0;
   let heatURL = '';
   let contourPath = '';
   let rangeW = [-1, 1], rangeB = [-1, 1];
+  let rankFn = () => 0, rangeL = [-1, 1];
 
   const sx = v => M.l + ((v - W_RANGE[0]) / (W_RANGE[1] - W_RANGE[0])) * PW;
   const sy = v => M.t + PH - ((v - B_RANGE[0]) / (B_RANGE[1] - B_RANGE[0])) * PH;
@@ -126,6 +146,7 @@ export function mount(host) {
     });
     ctx.putImageData(img, 0, 0);
     heatURL = canvas.toDataURL();
+    rankFn = rank;
 
     // Contour lines at evenly spaced ranks, traced with marching squares on a coarse grid.
     const node = [];
@@ -179,6 +200,7 @@ export function mount(host) {
     }
     rangeW = valueRange(Ls, Lw);
     rangeB = valueRange(Ls, Lb);
+    rangeL = valueRange(Ls);
   }
 
   function drawMap(dw, db) {
@@ -229,10 +251,12 @@ export function mount(host) {
     plotB.setFunctions(v => model.fn(w, v), v => model.d.b.fn(w, v), { xRange: B_RANGE, yRange: rangeB });
     plotB.setX(b);
     plotB.setCaption(`<strong>L vs b</strong><span>w held at ${fmt(w)} · slope ${fmt(db)}</span>`);
+    surface.setPoint({ w, b, L, dw, db });
 
     values.innerHTML = `At (<var>w</var>, <var>b</var>) = (<strong>${fmt(w)}</strong>, <strong>${fmt(b)}</strong>): <span class="calc-val-f"><var>L</var> = <strong>${fmt(L)}</strong></span>, <span class="calc-val-df">∂<var>L</var>/∂<var>w</var> = <strong>${fmt(dw)}</strong></span>, <span class="calc-val-df">∂<var>L</var>/∂<var>b</var> = <strong>${fmt(db)}</strong></span>`;
     const defined = [L, dw, db].every(Number.isFinite);
     gradient.hidden = !defined;
+    plane.hidden = !defined;
     meaningB.hidden = !defined;
     if (!defined) {
       meaningW.textContent = 'L or one of its slopes is undefined here. Pick a point where the map is shaded.';
@@ -243,10 +267,24 @@ export function mount(host) {
     meaningB.textContent = `With w fixed: ${slopeSentence(db, 'b', 'L').replace(/^The slope/, 'the slope')}`;
     renderTex(gradient.querySelector('.calc-tex'),
       `\\nabla L = \\left(\\tfrac{\\partial L}{\\partial w},\\ \\tfrac{\\partial L}{\\partial b}\\right) = (${texNum(dw)},\\ ${texNum(db)})`);
+    // Tangent plane: L₀ + ∂L/∂w (w − w₀) + ∂L/∂b (b − b₀), written with tidy signs.
+    const term = (name, at, m) => (Math.abs(m) < 5e-3 ? '' : tangentTex('', name, at, 0, m).replace(/^\s*=\s*/, ''));
+    const wTerm = term('w', w, dw);
+    const bTerm = term('b', b, db);
+    const terms = [Math.abs(L) < 5e-3 ? '' : texNum(L), wTerm.trim(), bTerm.trim()].filter(Boolean);
+    const joined = terms.map((t, i) => (i && !/^-/.test(t) ? `+ ${t}` : t)).join(' ');
+    renderTex(plane.querySelector('.calc-tex'), `L \\approx ${joined || '0'}`);
     meaningG.textContent = Math.hypot(dw, db) < 5e-3
       ? 'The gradient is zero, so there is no downhill direction: this is a minimum, maximum or saddle point.'
       : `${sensitivity(dw, db)} The arrow shows −∇L = (${fmt(-dw)}, ${fmt(-db)}), the direction that lowers L fastest.`;
   }
+
+  const surface = createSurfacePlot(host.querySelector('.calc-surface-host'), {
+    wRange: W_RANGE, bRange: B_RANGE,
+    onSelect: (nw, nb) => { w = clampW(nw); b = clampB(nb); refresh(); },
+  });
+  host.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => surface.setView(button.dataset.view)));
+  host.querySelector('.calc-toggle input').addEventListener('change', event => surface.showTangent(event.target.checked));
 
   // Map interaction.
   const fromPointer = event => {
@@ -281,7 +319,7 @@ export function mount(host) {
   // Redraw the shading when the theme changes while the lesson is open.
   const themeWatch = new MutationObserver(() => {
     if (!host.contains(svg)) { themeWatch.disconnect(); return; }
-    if (model) { buildHeat(); refresh(); }
+    if (model) { buildHeat(); surface.refreshColors(); refresh(); }
   });
   themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
@@ -293,6 +331,7 @@ export function mount(host) {
     renderTex(mathBox.children[1], `\\dfrac{\\partial L}{\\partial w} = ${model.d.w.tex}`);
     renderTex(mathBox.children[2], `\\dfrac{\\partial L}{\\partial b} = ${model.d.b.tex}`);
     buildHeat();
+    surface.setModel({ fn: model.fn, rank: rankFn, zRange: rangeL });
     refresh();
     return null;
   }, mathBox);
