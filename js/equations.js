@@ -95,7 +95,7 @@
         note: first
           ? `Each neuron in the ${layerLower(l)} takes a weighted sum of the two inputs and adds its bias. Row j of W⁽¹⁾ holds neuron j’s two input weights. The result z is called the pre-activation.`
           : `This layer works exactly like the one before it, except its inputs are the previous layer’s activations a${usup(l)} instead of the raw inputs. Stacking layers lets the network build more complex features out of simpler ones.`,
-        hl: { nodes: [srcKey(l), key], edges: [`e${l}`], dir: 'fwd' },
+        hl: { nodes: [srcKey(l), key], edges: [`e${l}`, `b${l}`], dir: 'fwd' },
         vals: { [srcKey(l)]: srcVals(l), [key]: { arr: c.z[l], label: 'z', kind: 'fwd' } },
       });
 
@@ -140,7 +140,7 @@
         note: sig
           ? `With two classes the output layer has a single neuron. It combines all of the last hidden layer’s activations into one score, often called a logit.`
           : `With ${O} classes there is one output neuron per class. Each one combines all of the last hidden layer’s activations into a score (logit) for its class.`,
-        hl: { nodes: [srcKey(L), 'out'], edges: [`e${L}`], dir: 'fwd' },
+        hl: { nodes: [srcKey(L), 'out'], edges: [`e${L}`, `b${L}`], dir: 'fwd' },
         vals: { [srcKey(L)]: srcVals(L), out: { arr: zo, label: 'z', kind: 'fwd' } },
       });
     }
@@ -280,7 +280,7 @@
             ? 'The first layer follows the same pattern as every other layer: error at the destination times the value at the source. Here the sources are the raw inputs x₁ and x₂.'
             : `Same pattern again: the error δ${usup(l + 1)} at each neuron of this layer times the activation a${usup(l)} that fed it.`)
           + (multi ? ` The rows written out below are for ${isOut ? 'output' : 'destination'} neuron 1.` : ''),
-        hl: { nodes: [src, key], edges: [`e${l}`], dir: 'bwd' },
+        hl: { nodes: [src, key], edges: [`e${l}`, `b${l}`], dir: 'bwd' },
         vals: { [src]: srcVals(l), [key]: { arr: d, label: 'δ', kind: 'bwd' } },
       };
     };
@@ -359,7 +359,7 @@
           : 'Each parameter takes a small step downhill on the loss. The formatted view shows the step for this one sample. During training the app averages these gradients over mini-batches of 10 samples before stepping.',
         hl: {
           nodes: ['in', ...Array.from({ length: L }, (_, l) => `h${l}`), 'out'],
-          edges: Array.from({ length: L + 1 }, (_, l) => `e${l}`), dir: 'bwd',
+          edges: Array.from({ length: L + 1 }, (_, l) => [`e${l}`, `b${l}`]).flat(), dir: 'bwd',
         },
         vals: {},
       });

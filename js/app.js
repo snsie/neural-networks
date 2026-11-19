@@ -48,7 +48,7 @@ import { wireCalculusDialog } from './calculus.js';
     ext: EXT,
     onPick: p => { sample = p; renderWalk(true); drawBoundary(); },
   });
-  const netViz = new NetworkViz($('#network'), { info: nodeInfo });
+  const netViz = new NetworkViz($('#network'), { info: nodeInfo, onBias: openBias });
 
   /* ---------------- dataset grid ---------------- */
   const thumbData = {};
@@ -336,6 +336,19 @@ import { wireCalculusDialog } from './calculus.js';
     renderWalk(true);
   }
 
+  function biasDestination(l, j) {
+    return l === net.L ? `Output neuron ${j + 1}` : `Hidden layer ${l + 1} · neuron ${j + 1}`;
+  }
+
+  function openBias(l, j, trigger) {
+    const dialog = $('#biasDialog');
+    const weight = fmt(net.b[l][j]);
+    $('#biasDestination').textContent = biasDestination(l, j);
+    $('#biasExample').textContent = `1 × (${weight}) = ${weight}`;
+    dialog.addEventListener('close', () => trigger.focus(), { once: true });
+    dialog.showModal();
+  }
+
   /* ---------------- tooltips ---------------- */
   function nodeInfo(id) {
     if (!cur) return null;
@@ -367,6 +380,14 @@ import { wireCalculusDialog } from './calculus.js';
       return {
         title: `Loss · ${net.outMode === 'sigmoid' ? 'binary cross-entropy' : 'cross-entropy'}`, sub: subt,
         rows: [['L', f(net.loss(c, sample.label))], ['true class', CLASS_NAMES[sample.label]], ['predicted', CLASS_NAMES[net.predict(c)]]],
+      };
+    }
+    m = id.match(/^b(\d+)-(\d+)$/);
+    if (m) {
+      const l = +m[1], j = +m[2];
+      return {
+        title: 'Bias weight · click to explain', sub: biasDestination(l, j),
+        rows: [['input', '1'], ['weight b', f(net.b[l][j])], ['∂L/∂b', f(g.db[l][j])]],
       };
     }
     m = id.match(/^e(\d+)-(\d+)-(\d+)$/);

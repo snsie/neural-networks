@@ -329,6 +329,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   stroke-dasharray: 1.5 11; opacity: 0; transition: opacity .25s;
 }
 .edge-hit { fill: none; stroke: transparent; stroke-width: 10; pointer-events: stroke; cursor: help; }
+.bias-hit { cursor: pointer; }
 .netviz.dir-bwd .edge-pulse { stroke: var(--bwd); }
 .netviz .edge-pulse.on { opacity: 1; animation: flow .9s linear infinite; }
 .netviz.dir-bwd .edge-pulse.on { animation-direction: reverse; }
@@ -345,6 +346,17 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   animation-delay: var(--d, 0s);
 }
 @keyframes pop { from { opacity: 0; transform: translate(-50%, -50%) scale(.35); } }
+.bias-node {
+  position: absolute; transform: translate(-50%, -50%); display: grid; place-items: center;
+  width: var(--bias-size); height: var(--bias-size); padding: 0; border-radius: 3px;
+  border: 1px solid var(--faint); background: var(--surface-2); color: var(--text);
+  font: 650 11px var(--mono); pointer-events: auto; cursor: pointer;
+  transition: opacity .3s, left .35s ease, top .35s ease;
+}
+.netviz.focus .bias-node:not(.on):not(:hover):not(:focus-visible) { opacity: .45; }
+.netviz.focus .bias-node.on { border-color: var(--fwd); }
+.netviz.focus.dir-bwd .bias-node.on { border-color: var(--bwd); }
+.bias-node:hover, .bias-node:focus-visible { outline: 2px solid var(--fwd); outline-offset: 2px; }
 .node canvas { width: 100%; height: 100%; display: block; border-radius: 11px; }
 .node--in { border-radius: 50%; }
 .node--in canvas { border-radius: 50%; }
@@ -570,8 +582,10 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .activation-chip { text-align: left; white-space: normal; }
 .activation-chip strong { display: block; }
 .activation-chip svg { flex: none; color: var(--accent); }
-.activation-dialog { width: min(480px, calc(100% - 24px)); max-height: calc(100dvh - 24px); overflow: auto; color: var(--text); }
-.activation-dialog::backdrop { background: rgb(0 0 0 / .56); }
+.activation-dialog, .bias-dialog { width: min(480px, calc(100% - 24px)); max-height: calc(100dvh - 24px); overflow: auto; color: var(--text); }
+.activation-dialog::backdrop, .bias-dialog::backdrop { background: rgb(0 0 0 / .56); }
+.bias-dialog p { margin: 10px 0; }
+.bias-formula { padding: 8px 12px; border-radius: 8px; background: var(--surface-2); font-family: var(--mono); }
 
 @media (min-width: 840px) {
   .page { height: 100dvh; min-height: 470px; }

@@ -130,7 +130,7 @@
           </div>
         </div>
         <div id="network"></div>
-        <p class="hint">Each tile shows what that neuron outputs across the whole input plane. Hover a neuron or a connection to see its values for the selected sample.</p>
+        <p class="hint">Neuron tiles show outputs across the input plane. Hover a neuron or connection for values. Select a 1 square or its connection to explore the bias.</p>
       </section>
 
       <section class="card col-out" aria-labelledby="outTitle">
@@ -199,6 +199,18 @@
         <button id="calculusPrev" class="nav-btn" type="button">Previous</button>
         <button id="calculusNext" class="nav-btn primary" type="button">Next</button>
       </div>
+    </dialog>
+
+    <dialog id="biasDialog" class="card bias-dialog" aria-labelledby="biasTitle">
+      <div class="card-head">
+        <h2 id="biasTitle">Bias as a weight</h2>
+        <form method="dialog"><button class="text-btn" autofocus>Close</button></form>
+      </div>
+      <p id="biasDestination" class="muted small"></p>
+      <p>The square supplies a fixed input of 1. The weight on its connection is the neuron’s bias, <var>b</var>. Multiplying by 1 adds that weight directly to the weighted sum.</p>
+      <p class="bias-formula">z = Σ(wᵢxᵢ) + b × 1</p>
+      <p id="biasExample" class="bias-formula"></p>
+      <p>The bias shifts the neuron’s pre-activation <var>z</var> by the same amount for every sample, even when the other inputs are zero. Training updates the weight <var>b</var> while the square stays at 1.</p>
     </dialog>
 
     <dialog id="activationDialog" class="card activation-dialog" aria-labelledby="actTitle">
