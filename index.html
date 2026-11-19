@@ -205,14 +205,11 @@
 
     <dialog id="biasDialog" class="card bias-dialog" aria-labelledby="biasTitle">
       <div class="card-head">
-        <h2 id="biasTitle">Bias as a weight</h2>
+        <h2 id="biasTitle">Neuron bias</h2>
         <form method="dialog"><button class="text-btn" autofocus>Close</button></form>
       </div>
       <p id="biasDestination" class="muted small"></p>
-      <p>The square supplies a fixed input of 1. The weight on its connection is the neuron’s bias, <var>b</var>. Multiplying by 1 adds that weight directly to the weighted sum.</p>
-      <p class="bias-formula">z = Σ(wᵢxᵢ) + b × 1</p>
-      <p id="biasExample" class="bias-formula"></p>
-      <p>The bias shifts the neuron’s pre-activation <var>z</var> by the same amount for every sample, even when the other inputs are zero. Training updates the weight <var>b</var> while the square stays at 1.</p>
+      <p id="biasValue" class="bias-formula"></p>
     </dialog>
 
     <dialog id="activationDialog" class="card activation-dialog" aria-labelledby="actTitle">
