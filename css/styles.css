@@ -621,11 +621,30 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .calc-tex { white-space: nowrap; }
 .calc-readout .katex { font-size: 1.08em; }
 
-/* Partial derivative: contour map beside two slices */
-.calc-partial-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: start; margin-bottom: 8px; }
-.calc-map { margin: 0; padding: 8px; border-radius: 12px; background: var(--surface-2); }
-.calc-slices { display: grid; gap: 10px; }
-.calc-slices .calc-plot { margin: 0; }
+/* Partial derivative: contour map and 3D surface side by side, two slices below */
+.calc-partial-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: stretch; margin-bottom: 10px; }
+.calc-map, .calc-surface { margin: 0; padding: 8px; border-radius: 12px; background: var(--surface-2); min-width: 0; }
+.calc-surface { display: flex; flex-direction: column; }
+.calc-surface figcaption { display: grid; padding: 0 4px 2px; font-size: .9rem; }
+.calc-surface figcaption span { color: var(--muted); font-size: .85rem; }
+.calc-surface-host { flex: 1; min-height: 0; }
+.calc-surface-canvas {
+  display: block; width: 100%; aspect-ratio: 1 / .9; border-radius: 6px; background: var(--surface);
+  cursor: grab; touch-action: none;
+}
+.calc-surface-canvas.dragging { cursor: grabbing; }
+.calc-surface-canvas:focus { outline: none; }
+.calc-surface-canvas:focus-visible:not(.pointer) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.calc-surface-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; padding: 6px 2px 2px; }
+.calc-views { display: flex; flex-wrap: wrap; gap: 4px; }
+.calc-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: .85rem; font-weight: 600; cursor: pointer; }
+.calc-toggle input { accent-color: var(--accent); margin: 0; }
+.calc-surface-legend { padding: 4px 4px 0; }
+.lg-plane::before { height: 9px; border: 0; border-radius: 2px; background: color-mix(in srgb, var(--text) 22%, transparent); }
+.lg-arrow { color: var(--text); }
+.lg-arrow::after { content: ""; border: 4px solid transparent; border-left: 6px solid currentColor; margin-left: -6px; }
+.calc-slices { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 10px; }
+.calc-slices .calc-plot { margin: 0; max-width: none; }
 .calc-map-frame { fill: none; stroke: var(--border); }
 .calc-contour { fill: none; stroke: var(--text); stroke-width: 1; opacity: .32; }
 .calc-map .calc-axis-name { fill: var(--text); font-size: 15px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
@@ -644,7 +663,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .calc-chain-c { grid-column: 1 / -1; }
 
 @media (max-width: 620px) {
-  .calc-partial-grid, .calc-chain-grid { grid-template-columns: minmax(0, 1fr); }
+  .calc-partial-grid, .calc-chain-grid, .calc-slices { grid-template-columns: minmax(0, 1fr); }
   .calc-chain-c .calc-plot text { font-size: 22px; }
 }
 @media (max-width: 560px) {
