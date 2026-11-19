@@ -43,22 +43,25 @@
 
     <section id="ideas" aria-labelledby="ideas-heading">
       <h2 id="ideas-heading">Pick a question worth exploring</h2>
-      <p>Start with one of these ideas or propose your own. Use public or synthetic data and credit the source.</p>
+      <p>Start with one of these ideas or propose your own. Each idea links to a free dataset that needs no sign-in. If you propose your own idea, use public or synthetic data. Credit your data source on your site.</p>
       <div class="idea-grid">
         <article class="idea">
           <h3>Wearable Activity Detective</h3>
           <p>Can a neural network tell walking from stair climbing? Let visitors guess from an accelerometer trace, reveal the prediction, and explore a mistake.</p>
-          <span>Classification · Wearable data</span>
+          <p class="idea-data"><strong>Data:</strong> <a href="https://archive.ics.uci.edu/dataset/240/human+activity+recognition+using+smartphones">UCI Human Activity Recognition Using Smartphones</a>. It has 30 people and six labeled activities, including walking, walking upstairs and walking downstairs. It comes already split into train and test sets. Use the 561 ready-made features for the model. Use the raw signals in <code>Inertial Signals</code> for the traces visitors see. License: CC BY 4.0.</p>
+          <span>Classification · Public wearable data</span>
         </article>
         <article class="idea">
           <h3>Clinic Wait-Time Simulator</h3>
           <p>How do staffing and queue size affect wait times? Let visitors adjust a simulated clinic and see how the predicted wait changes.</p>
+          <p class="idea-data"><strong>Data:</strong> <a href="data/clinic-wait-times.csv" download>clinic-wait-times.csv</a>. It has 2,000 simulated visits with hour, weekday, staff on shift, queue length and wait in minutes. We made it up: waits grow with the queue, shrink with more staff, and run longer at peak hours and on Mondays.</p>
           <span>Regression · Synthetic data</span>
         </article>
         <article class="idea">
           <h3>Readmission Threshold Lab</h3>
           <p>What happens when you flag more discharges for follow-up? Let visitors move a threshold slider and see how many readmissions the model catches or misses.</p>
-          <span>Classification · Synthetic data</span>
+          <p class="idea-data"><strong>Data:</strong> <a href="https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008">UCI Diabetes 130-US Hospitals, 1999–2008</a>. It has about 100,000 hospital stays. Predict <code>readmitted</code> = “&lt;30” (about 11% of stays). Start with the eight numeric columns, such as days in hospital and prior visits. Split by <code>patient_nbr</code> so no patient appears in both train and test. Expect a modest model. The lesson is in the threshold trade-off.</p>
+          <span>Classification · Public hospital data</span>
         </article>
       </div>
     </section>
@@ -68,7 +71,7 @@
       <ol class="build-steps">
         <li>
           <h3>Train and evaluate a small neural network</h3>
-          <p>Define what the model takes in and what it predicts. Keep a test set separate from training and tuning. Compare the network with a simple baseline on that test set, such as the most frequent activity or the median training wait time. Pick one mistake and explain what might have helped.</p>
+          <p>Download the dataset linked on your idea card, or bring your own. Define what the model takes in and what it predicts. Keep a test set separate from training and tuning. Compare the network with a simple baseline on that test set, such as the most frequent activity or the median training wait time. Pick one mistake and explain what might have helped.</p>
         </li>
         <li>
           <h3>Design one meaningful interaction</h3>
