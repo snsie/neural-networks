@@ -104,6 +104,7 @@
 
     _bias(l, j, target) {
       const button = el('button', 'bias-node', target.el);
+      target.bias = button;
       button.type = 'button';
       button.title = 'Show bias';
       button.setAttribute('aria-label', `Show bias for ${l === this.cfg.L ? 'output' : `hidden layer ${l + 1},`} neuron ${j + 1}`);
@@ -249,13 +250,16 @@
       }
     }
 
-    /** spec: {nodes: [groups], edges: [groups], dir: 'fwd'|'bwd'} or null */
+    /** spec: {nodeIds, edgeIds, dir: 'fwd'|'bwd'} or null */
     highlight(spec) {
       this.root.classList.toggle('focus', !!spec);
       this.root.classList.toggle('dir-bwd', !!spec && spec.dir === 'bwd');
-      for (const rec of this.nodes.values()) rec.el.classList.toggle('on', !!spec && spec.nodes.includes(rec.key));
+      for (const rec of this.nodes.values()) {
+        rec.el.classList.toggle('on', !!spec && spec.nodeIds.includes(rec.id));
+        rec.bias?.classList.toggle('on', !!spec && spec.nodeIds.includes(`bias-${rec.id}`));
+      }
       for (const e of this.edges.values()) {
-        const on = !!spec && spec.edges.includes(e.group);
+        const on = !!spec && spec.edgeIds.includes(e.id);
         e.base.classList.toggle('on', on);
         e.pulse.classList.toggle('on', on);
       }

@@ -1,5 +1,6 @@
 /* App state, UI wiring, and the training loop. */
 import { wireCalculusDialog } from './calculus.js';
+import { renderTrace, renderDetails } from './walkthrough-view.js';
 (function () {
   'use strict';
 
@@ -21,12 +22,13 @@ import { wireCalculusDialog } from './calculus.js';
     dsId: 'circle', noise: 0.1, seed: 1, initSeed: 1,
     H: 1, L: 1, actId: 'relu', lr: 0.03, optimizer: 'adam',
     playing: false, epoch: 0, showTest: true,
-    mode: 'formatted', step: 0, stepFocus: null,
+    openStepDetails: false, step: 0, stepFocus: null,
   };
 
   let data, train, test, net, grid, pal, sample, cur, steps = [];
   let history = { train: [], test: [] };
-  let lastEqKey = '', lastStepIdx = -1, stepListSig = '';
+  let lastEqKey = '', lastStepId = '', stepListSig = '', choicesSig = '';
+  const traceSelection = new Map();
 
   /* ---------------- KaTeX helper ---------------- */
   function tex(el, s, display = true) {
@@ -220,13 +222,13 @@ import { wireCalculusDialog } from './calculus.js';
     const g = net.backward(c, sample.label);
     cur = { c, g };
     steps = Equations.build({
-      net, cache: c, grads: g, label: sample.label, mode: state.mode,
+      net, cache: c, grads: g, label: sample.label,
       lr: state.lr, optimizer: state.optimizer, classNames: CLASS_NAMES,
     });
   }
 
   function renderTimeline() {
-    const sig = JSON.stringify(steps.map(({ phase, band, title }) => [phase, band, title]));
+    const sig = JSON.stringify(steps.map(({ phase, band, label }) => [phase, band, label]));
     const list = $('#stepList');
     if (sig !== stepListSig) {
       const focusedIndex = list.contains(document.activeElement) ? document.activeElement.dataset.i : null;
@@ -276,16 +278,18 @@ import { wireCalculusDialog } from './calculus.js';
           button.dataset.i = i;
           button.style.gridColumn = positions[i];
           button.textContent = i + 1;
-          button.title = step.title;
-          button.setAttribute('aria-label', `Step ${i + 1}. ${step.title}`);
+          button.title = step.label;
+          button.setAttribute('aria-label', `Step ${i + 1}. ${step.label}`);
           button.addEventListener('click', () => goStep(i));
           row.append(button);
         });
         grid.append(row);
       }
       list.replaceChildren(grid);
+      $('#stepPicker').replaceChildren(...steps.map((step, i) => new Option(`${i + 1}. ${step.label}`, i)));
       if (focusedIndex != null) list.querySelectorAll('.step-item')[focusedIndex]?.focus();
     }
+    $('#stepPicker').value = state.step;
     list.querySelectorAll('.step-item').forEach((button, i) => {
       if (i === state.step) button.setAttribute('aria-current', 'step');
       else button.removeAttribute('aria-current');
@@ -293,13 +297,57 @@ import { wireCalculusDialog } from './calculus.js';
   }
 
   function nodeValues(step) {
+    const formatValue = x => x !== 0 && Math.abs(x) < 0.001 ? x.toExponential(2).replace('-', '−') : fmt(x);
     const out = {};
     const id = (key, i) => (key === 'in' ? `in${i}` : key === 'out' ? `o${i}` : key === 'loss' ? 'loss' : `${key}-${i}`);
     for (const key in step.vals) {
       const v = step.vals[key];
-      v.arr.forEach((x, i) => { out[id(key, i)] = { text: fmt(x, 2), label: v.label, kind: v.kind }; });
+      v.arr.forEach((x, i) => {
+        const node = id(key, i);
+        if (!state.stepFocus || step.hl.nodeIds.includes(node)) {
+          out[node] = { text: formatValue(x), label: v.label, kind: v.kind };
+        }
+      });
     }
     return out;
+  }
+
+  function renderChoices(selectors, isBias) {
+    const shown = selectors.filter(({ key, options }) => options.length > 1 && !(isBias && key.startsWith('source-')));
+    const sig = JSON.stringify(shown);
+    const root = $('#traceChoices');
+    if (sig !== choicesSig) {
+      choicesSig = sig;
+      const fields = new Map([...root.children].map(field => [field.lastChild.dataset.key, field]));
+      shown.forEach(({ key, label, options }, i) => {
+        let field = fields.get(key);
+        if (!field) {
+          field = document.createElement('label');
+          const select = document.createElement('select');
+          select.dataset.key = key;
+          select.addEventListener('change', () => {
+            traceSelection.set(key, Number(select.value));
+            renderWalk(false);
+          });
+          field.append(label, select);
+        }
+        const select = field.lastChild;
+        const optionKey = JSON.stringify(options);
+        if (select.dataset.options !== optionKey) {
+          select.dataset.options = optionKey;
+          select.replaceChildren(...options.map((option, index) => new Option(option, index)));
+        }
+        fields.delete(key);
+        const current = root.children[i];
+        if (current !== field) root.insertBefore(field, current || null);
+      });
+      for (const field of fields.values()) field.remove();
+    }
+    root.querySelectorAll('select').forEach((select, i) => { select.value = choiceIndex(shown[i]); });
+  }
+
+  function choiceIndex({ key, options, defaultIndex = 0 }) {
+    return Math.min(traceSelection.get(key) ?? defaultIndex, options.length - 1);
   }
 
   function renderWalk(force) {
@@ -309,35 +357,28 @@ import { wireCalculusDialog } from './calculus.js';
     renderTimeline();
     const s = steps[state.step];
 
-    $('#stepTitle').textContent = s.title;
+    const primary = s.render(...s.selectors.map(choiceIndex));
+    const subchoices = primary.selectors?.map(choiceIndex);
+    const guide = subchoices ? primary.render(...subchoices) : primary;
+    renderChoices([...s.selectors, ...(primary.selectors || [])], s.id === 'update' && subchoices[1] === 1);
+    const progress = `${s.phase === 'fwd' ? 'Forward pass' : 'Backward pass'} · ${state.step + 1} of ${steps.length} · ${s.label}`;
+    if ($('#stepPosition').textContent !== progress) $('#stepPosition').textContent = progress;
+    if ($('#stepTitle').textContent !== guide.title) $('#stepTitle').textContent = guide.title;
+    if ($('#stepNote').textContent !== guide.intro) $('#stepNote').textContent = guide.intro;
 
-    const key = `${state.mode}|${s.blocks.join('§')}`;
+    const key = JSON.stringify([s.id, guide, effectiveTheme()]);
     if (force || key !== lastEqKey) {
       lastEqKey = key;
-      if (force) $('#equationBody').scrollTo(0, 0);
-      if (force) $("#equationBody").scrollTop = 0;
-      const eq = $('#stepEq');
-      eq.innerHTML = '';
-      for (const b of s.blocks) {
-        const d = document.createElement('div');
-        d.className = 'eq-block';
-        eq.appendChild(d);
-        tex(d, b);
-      }
-      if (lastStepIdx !== state.step) {
-        eq.classList.remove('anim');
-        void eq.offsetWidth;
-        eq.classList.add('anim');
-      }
+      if (lastStepId !== s.id) $('#traceDetails').replaceChildren();
+      renderTrace($('#stepEq'), guide, tex);
+      renderDetails($('#traceDetails'), guide.details, tex, state.openStepDetails);
+      lastStepId = s.id;
     }
-    lastStepIdx = state.step;
-    $('#stepNote').textContent = s.note;
-    $('#eqLegend').classList.toggle('hidden', state.mode !== 'formatted');
     $('#prevStep').disabled = state.step === 0;
     $('#nextStep').disabled = state.step === steps.length - 1;
 
-    netViz.highlight(state.stepFocus ? s.hl : null);
-    netViz.setValues(nodeValues(s));
+    netViz.highlight(state.stepFocus ? guide.hl : null);
+    netViz.setValues(nodeValues(guide));
     renderSampleChip();
   }
 
@@ -348,7 +389,8 @@ import { wireCalculusDialog } from './calculus.js';
       `<i style="background:var(--c${sample.label})"></i>` +
       `<span>Sample #${sample.id}${sample.test ? ' (test)' : ''}</span>` +
       `<span class="mono">(${fmt(sample.x, 2)}, ${fmt(sample.y, 2)})</span>` +
-      `<span class="${ok ? 'ok' : 'bad'}">${ok ? '✓ correct' : `✗ predicted ${CLASS_NAMES[pred]}`}</span>`;
+      `<span>True: ${CLASS_NAMES[sample.label]}</span>` +
+      `<span class="${ok ? 'ok' : 'bad'}">Predicted: ${CLASS_NAMES[pred]}</span>`;
   }
 
   function setStepFocus(enabled) {
@@ -366,7 +408,13 @@ import { wireCalculusDialog } from './calculus.js';
     renderWalk(true);
     const list = $('#stepList');
     const selected = list.querySelector('[aria-current="step"]');
+    const toolbar = $('.walk-toolbar');
+    const title = $('#stepPosition');
+    if (title.getBoundingClientRect().top < toolbar.getBoundingClientRect().bottom) {
+      $('.walkthrough').scrollIntoView({ block: 'start' });
+    }
     const viewport = list.getBoundingClientRect();
+    if (viewport.width === 0) return;
     const button = selected.getBoundingClientRect();
     if (button.left < viewport.left) list.scrollLeft += button.left - viewport.left - 8;
     else if (button.right > viewport.right) list.scrollLeft += button.right - viewport.right + 8;
@@ -440,6 +488,7 @@ import { wireCalculusDialog } from './calculus.js';
     drawThumbs();
     updateActivation();
     refreshVisuals();
+    renderWalk(false);
   }
 
   /* ---------------- controls ---------------- */
@@ -487,21 +536,10 @@ import { wireCalculusDialog } from './calculus.js';
       drawBoundary();
     });
 
-    document.querySelectorAll('#modeSeg button').forEach(b => {
-      b.classList.toggle('on', b.dataset.mode === state.mode);
-      b.setAttribute('aria-selected', b.dataset.mode === state.mode);
-      b.addEventListener('click', () => {
-        state.mode = b.dataset.mode;
-        document.querySelectorAll('#modeSeg button').forEach(x => {
-          x.classList.toggle('on', x === b);
-          x.setAttribute('aria-selected', x === b);
-        });
-        renderWalk(true);
-      });
-    });
+    $('#stepPicker').addEventListener('change', e => goStep(Number(e.target.value)));
     $('#stepFocus').addEventListener('click', () => {
       setStepFocus(!state.stepFocus);
-      netViz.highlight(state.stepFocus ? steps[state.step]?.hl : null);
+      renderWalk(false);
     });
     $('#prevStep').addEventListener('click', () => goStep(state.step - 1));
     $('#nextStep').addEventListener('click', () => goStep(state.step + 1));
@@ -576,7 +614,7 @@ import { wireCalculusDialog } from './calculus.js';
     if (layers >= MIN_LAYERS && layers <= MAX_LAYERS) state.L = layers;
     const step = Number(q.get('step'));
     if (Number.isInteger(step) && step >= 1) state.step = step - 1; // clamped once steps are built
-    if (q.get('mode') === 'symbolic' || q.get('mode') === 'formatted') state.mode = q.get('mode');
+    state.openStepDetails = q.get('mode') === 'symbolic';
     return Math.min(2000, Math.max(0, parseInt(q.get('epochs'), 10) || 0));
   }
 

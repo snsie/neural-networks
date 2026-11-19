@@ -1,369 +1,280 @@
-/* Builds the forward/backward walkthrough as KaTeX strings.
- * mode 'symbolic'  -> general notation: f(z), ∂a/∂z, σ(z), softmax(z) ...
- * mode 'formatted' -> the selected functions written out, with this sample's numbers plugged in.
- *
- * Layers are indexed l = 0..L in code (L = number of hidden layers, l = L is the output),
- * and written with superscripts (1)..(L+1) in the math. */
+/* Guided calculations for the selected sample. Each step supplies the math and
+ * the corresponding network nodes and connections from the same forward/backward pass. */
 (function () {
   'use strict';
-  const { f3, P } = Activations;
 
-  const cls = (c, s) => `\\htmlClass{${c}}{${s}}`;
-  const val = v => cls('eq-a', f3(v));
-  const valP = v => cls('eq-a', P(v));
-  const par = v => cls('eq-w', f3(v));
-  const parP = v => cls('eq-w', P(v));
-  const grd = v => cls('eq-g', f3(v));
-  const grdP = v => cls('eq-g', P(v));
+  const T = String.raw;
+  const { f3 } = Activations;
+  const number = v => {
+    if (v !== 0 && Math.abs(v) < 0.001) {
+      const [m, e] = v.toExponential(2).split('e');
+      return T`${m}\times10^{${+e}}`;
+    }
+    return v > 0.9995 && v < 1 ? String(v) : f3(v);
+  };
+  const signed = v => v < 0 ? T`\big(${number(v)}\big)` : number(v);
+  const S = n => T`^{(${n})}`;
+  const d = (a, b) => T`\frac{\partial ${a}}{\partial ${b}}`;
+  const matrix = rows => T`\begin{bmatrix}${rows.map(row => row.map(number).join(' & ')).join(T` \\ `)}\end{bmatrix}`;
+  const column = values => matrix(values.map(value => [value]));
+  const item = (label, math) => ({ label, math });
+  const value = (label, v) => item(label, number(v));
+  const table = (headings, rows, active = -1) => ({ headings, rows, active });
+  const detail = (title, math, text) => ({ title, math, text });
+  const section = (label, rule, worked) => ({ label, rule, worked });
+  const trace = (title, intro, options) => ({ title, intro, ...options });
+  const nodes = (nodeIds, edgeIds = [], dir = 'fwd') => ({ nodeIds, edgeIds, dir });
+  const indices = a => a.map((_, i) => i);
 
-  const col = arr => `\\begin{bmatrix}${arr.join(' \\\\ ')}\\end{bmatrix}`;
-  const mat = rows => `\\begin{bmatrix}${rows.map(r => r.join(' & ')).join(' \\\\ ')}\\end{bmatrix}`;
-  const aligned = rows => `\\begin{aligned}${rows.join(' \\\\[3pt] ')}\\end{aligned}`;
-  const signed = (v, wrap) => (v < 0 && Math.abs(v) >= 5e-4 ? `- ${wrap(-v)}` : `+ ${wrap(v)}`);
-  /** "expr = expr = result", dropping intermediate steps that just repeat the result. */
-  const chain = (parts, resultTex, resultVal) => [...parts.filter(p => p !== f3(resultVal)), resultTex].join(' = ');
-  const transpose = M => M[0].map((_, i) => M.map(r => r[i]));
-
-  const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹';
-  const usup = n => `⁽${String(n).split('').map(d => SUP[+d]).join('')}⁾`;
-  const S = n => `^{(${n})}`;
-  const dfrac = (a, b) => `\\frac{\\partial ${a}}{\\partial ${b}}`;
-
-  function build(ctx) {
-    const { net, cache: c, grads: g, label, mode, lr, optimizer, classNames } = ctx;
-    const act = net.act, H = net.H, O = net.O, L = net.L, sig = net.outMode === 'sigmoid';
-    const F = mode === 'formatted';
+  function build({ net, cache: c, grads: g, label, lr, optimizer, classNames }) {
+    const { L, O, act } = net;
+    const binary = O === 1;
+    const so = S(L + 1);
+    const layer = l => l === L ? 'Output layer' : L === 1 ? 'Hidden layer' : `Hidden layer ${l + 1}`;
+    const group = l => l < 0 ? 'in' : l === L ? 'out' : `h${l}`;
+    const node = (l, j) => l < 0 ? `in${j}` : l === L ? `o${j}` : `h${l}-${j}`;
+    const edge = (l, j, i) => `e${l}-${j}-${i}`;
+    const bias = (l, j) => `bias-${node(l, j)}`;
+    const neuronName = (l, j) => l === L && !binary ? classNames[j] : `Neuron ${j + 1}`;
+    const sourceName = (l, i) => l === 0 ? `x${i === 0 ? '₁' : '₂'}` : `Neuron ${i + 1}`;
+    const choice = (l, defaultIndex = l === L && !binary ? label : 0) => ({
+      key: `neuron-${l === L ? 'out' : l}`,
+      label: l === L && !binary ? 'Class' : 'Neuron',
+      options: indices(c.z[l]).map(j => neuronName(l, j)),
+      defaultIndex,
+    });
+    const sourceChoice = l => ({
+      key: `source-${l === L ? 'out' : l}`,
+      label: 'Connection from',
+      options: indices(net.input(c, l)).map(i => sourceName(l, i)),
+    });
+    const inputVals = l => ({ arr: net.input(c, l), label: l === 0 ? 'x' : 'a', kind: 'fwd' });
+    const display = (arr, label, kind = 'fwd') => ({ arr, label, kind });
     const steps = [];
-    const n1 = i => i + 1;
-    const cname = k => `\\text{${classNames[k]}}`;
-    const So = S(L + 1);
+    const add = (id, phase, band, label, selectors, render) => steps.push({ id, phase, band, label, selectors, render });
+    const pred = net.predict(c);
+    const probs = net.probs(c);
+    const loss = net.loss(c, label);
 
-    /* ---- per-layer naming helpers (l = weight-layer index 0..L) ---- */
-    const layerName = l => (l === L ? 'Output layer' : L === 1 ? 'Hidden layer' : `Hidden layer ${l + 1}`);
-    const layerLower = l => layerName(l).replace(/^./, ch => ch.toLowerCase());
-    const nodeKey = l => (l === L ? 'out' : `h${l}`);            // nodes produced by layer l
-    const srcKey = l => (l === 0 ? 'in' : `h${l - 1}`);           // nodes feeding layer l
-    const inVec = l => (l === 0 ? '\\mathbf{x}' : `\\mathbf{a}${S(l)}`);
-    const inElJ = l => (l === 0 ? 'x_i' : `a${S(l)}_i`);
-    const inText = l => (l === 0 ? 'x' : `a${usup(l)}`);
-    const inDim = l => (l === 0 ? 2 : H);
-    const inVals = l => net.input(c, l);
-    const srcVals = l => ({ arr: inVals(l), label: l === 0 ? 'x' : 'a', kind: 'fwd' });
+    add('input', 'fwd', 0, 'Input sample', [], () => trace(
+      'What goes into the network?', 'The point’s two coordinates go into the network. Its true class is saved for the loss calculation.', {
+        inputs: [value('First coordinate x₁', c.x[0]), value('Second coordinate x₂', c.x[1]), { label: 'True class', text: classNames[label] }],
+        sections: [section('Represent the input and target',
+          binary ? T`\mathbf{x}=[x_1,x_2]^\top,\qquad y\in\{0,1\}` : T`\mathbf{x}=[x_1,x_2]^\top,\qquad y_k=\mathbf{1}[k=\text{true class}]`,
+          binary ? T`\mathbf{x}=${column(c.x)},\qquad y=${label}` : T`\mathbf{x}=${column(c.x)},\qquad \mathbf{y}=${column(g.t)}`)],
+        result: { label: 'Network input x', math: column(c.x), text: 'Follow these two values into the first weighted sum.' },
+        hl: nodes(['in0', 'in1']), vals: { in: inputVals(0) },
+      }));
 
-    /* ================= FORWARD ================= */
+    function weightedSum(l, j) {
+      const inputs = net.input(c, l), weights = net.W[l][j], b = net.b[l][j], z = c.z[l][j];
+      const s = S(l + 1);
+      const x = l === 0 ? 'x_i' : T`a${S(l)}_i`;
+      const a = l === 0 ? T`\mathbf{x}` : T`\mathbf{a}${S(l)}`;
+      const zLabel = l === L ? 'Output score z (logit)' : 'Pre-activation z';
+      return trace(l === L ? 'How does the output neuron compute its score?' : 'How does this neuron combine its inputs?',
+        'Multiply each incoming value by its connection weight, then add the bias. You can think of the bias as a weight on a constant input of 1. The square marks that bias on the diagram.', {
+          inputs: [value('Bias weight b from the bias square', b)],
+          sections: [section('Multiply, then add', T`z${s}_j=\sum_i w${s}_{ji}${x}+b${s}_j`)],
+          tables: [table(['Source', 'Source value', 'Weight', 'Contribution'], [
+            ...inputs.map((x, i) => [sourceName(l, i), value('', x), value('', weights[i]), value('', weights[i] * x)]),
+            ['Bias square', item('', '1'), value('', b), value('', b)],
+          ])],
+          after: [section('Add the contributions', null,
+            T`${inputs.map((x, i) => signed(weights[i] * x)).concat(signed(b)).join(' + ')}\approx${number(z)}`)],
+          result: { label: zLabel, math: number(z), text: l === L ? 'Prediction converts this score into a probability.' : `${act.name} uses this value in the next step.` },
+          details: [
+            detail('Show all neuron scores', T`\mathbf{z}${s}=${column(c.z[l])}`),
+            detail('Show matrix form', [
+              T`\mathbf{z}${s}=W${s}${a}+\mathbf{b}${s}`,
+              T`${matrix(net.W[l])}\,${column(inputs)} + ${column(net.b[l])}\approx ${column(c.z[l])}`,
+            ], 'Each row of W contains the weights feeding one destination neuron.'),
+          ],
+          hl: nodes([node(l, j), bias(l, j), ...indices(inputs).map(i => node(l - 1, i))], indices(inputs).map(i => edge(l, j, i))),
+          vals: { [group(l - 1)]: inputVals(l), [group(l)]: display(c.z[l], 'z') },
+        });
+    }
 
-    // input
-    steps.push({
-      id: 'input', band: 0, phase: 'fwd', title: 'Input sample', short: 'x, y',
-      blocks: F ? [
-        `\\mathbf{x} = ${col([val(c.x[0]), val(c.x[1])])}`,
-        sig ? `y = ${label} \\quad (${cname(label)})`
-            : `\\mathbf{y} = ${col(g.t.map(String))} \\quad (\\text{one-hot for } ${cname(label)})`,
-      ] : [
-        `\\mathbf{x} = \\begin{bmatrix} x_1 \\\\ x_2 \\end{bmatrix}`,
-        sig ? `y \\in \\{0,\\,1\\}` : `\\mathbf{y} \\in \\{0,1\\}^{${O}} \\quad \\text{(one-hot class label)}`,
-      ],
-      note: sig
-        ? `Each example is a point (x₁, x₂). With two classes, one number is enough for the label: y = 1 means ${classNames[1]} and y = 0 means ${classNames[0]}.`
-        : `Each example is a point (x₁, x₂). With ${O} classes, the label is one-hot encoded: a 1 in the true class’s slot and 0 everywhere else.`,
-      hl: { nodes: ['in'], edges: [], dir: 'fwd' },
-      vals: { in: { arr: c.x, label: 'x', kind: 'fwd' } },
+    for (let l = 0; l < L; l++) {
+      add(`z${l + 1}`, 'fwd', l + 1, `${layer(l)} sum`, [choice(l)], j => weightedSum(l, j));
+      add(`a${l + 1}`, 'fwd', l + 1, `${layer(l)} activation`, [choice(l)], j => {
+        const z = c.z[l][j], a = c.a[l][j];
+        const branch = act.id === 'relu' ? (z > 0 ? ' This score is positive, so ReLU passes it through.' : ' At this score, ReLU outputs zero.') : '';
+        return trace(`What does ${act.name} do to the score?`, `Apply the same function to each neuron independently.${branch}`, {
+          inputs: [value('Pre-activation z from weighted sum', z)],
+          sections: [section('Apply the activation', T`a=f(z)=${act.texF}`, T`a=f(${number(z)})\approx${number(a)}`)],
+          plot: { z, a, act, slope: false },
+          result: { label: 'Activation a', math: number(a), text: 'This becomes an input to the next layer.' },
+          details: [detail('Show all neuron activations', T`\mathbf{a}${S(l + 1)}=${column(c.a[l])}`)],
+          hl: nodes([node(l, j)]), vals: { [group(l)]: display(c.a[l], 'a') },
+        });
+      });
+    }
+
+    add('zout', 'fwd', L + 1, 'Output score', [choice(L)], j => weightedSum(L, j));
+    add('yhat', 'fwd', L + 1, 'Prediction', binary ? [] : [choice(L)], (k = 0) => {
+      const logits = c.z[L], p = c.yhat[k];
+      const shift = Math.max(...logits), terms = logits.map(z => Math.exp(z - shift));
+      const total = terms.reduce((sum, x) => sum + x, 0);
+      const probabilityTable = table(binary ? ['Class', 'Probability'] : ['Class', 'Score z', 'Probability'],
+        classNames.slice(0, net.K).map((name, i) => [i === pred ? `${name} (predicted)` : name,
+          ...(binary ? [] : [value('', logits[i])]), value('', probs[i])]), binary ? pred : k);
+      return trace('How do scores become probabilities?',
+        binary ? 'Sigmoid turns the single score into the probability of class 1. The other class gets the remaining probability.'
+          : 'Softmax converts all class scores together. Each class uses the same denominator, so changing one score can affect all probabilities.', {
+          inputs: [value(binary ? 'Output score z' : `Score z · ${classNames[k]}`, logits[k])],
+          sections: binary ? [section('Apply sigmoid', T`\hat y=\sigma(z)=\frac{1}{1+e^{-z}}`, T`\hat y=\frac{1}{1+e^{-${signed(logits[0])}}}\approx${number(p)}`)] :
+            [section('Normalize across classes', T`\hat y_k=\frac{e^{z_k-m}}{\sum_i e^{z_i-m}}\quad(m=\max_i z_i)`, T`\hat y_{${k + 1}}=\frac{${number(terms[k])}}{${number(total)}}\approx${number(p)}`)],
+          tables: [probabilityTable],
+          details: binary ? [] : [detail('Show the shared denominator', [
+            T`m=\max_k z_k=${number(shift)}`,
+            T`\sum_i e^{z_i-m}\approx${terms.map(number).join(' + ')}\approx${number(total)}`,
+          ], 'Subtracting the same maximum score from every score keeps the exponentials numerically stable and leaves the probabilities unchanged.')],
+          result: { label: 'Predicted class', text: `${classNames[pred]} has the highest probability. The next step uses the probability of the true class.` },
+          hl: nodes([node(L, k)]), vals: { out: display(c.yhat, 'ŷ') },
+        });
     });
 
-    // hidden layers: weighted sum + activation
-    for (let l = 0; l < L; l++) {
-      const s = S(l + 1), inp = inVals(l), Wl = net.W[l], bl = net.b[l], key = nodeKey(l);
-      const rows = [];
-      for (let j = 0; j < H; j++) {
-        const terms = inp.map((v, i) => `${parP(Wl[j][i])} \\cdot ${valP(v)}`).join(' + ');
-        rows.push(`z${s}_{${n1(j)}} &= ${terms} ${signed(bl[j], par)} = ${val(c.z[l][j])}`);
-      }
-      const first = l === 0;
-      steps.push({
-        id: `z${l + 1}`, band: l + 1, phase: 'fwd', title: `${layerName(l)}: weighted sum`,
-        short: `z${usup(l + 1)} = W${usup(l + 1)}${inText(l)} + b${usup(l + 1)}`,
-        blocks: F ? [
-          `\\mathbf{z}${s} = ${mat(Wl.map(r => r.map(par)))}\\,${col(inp.map(val))} + ${col(bl.map(par))} = ${col(c.z[l].map(val))}`,
-          aligned(rows),
-        ] : [
-          `\\mathbf{z}${s} = W${s}\\,${inVec(l)} + \\mathbf{b}${s}`,
-          first
-            ? `z${s}_j = w${s}_{j1}\\,x_1 + w${s}_{j2}\\,x_2 + b${s}_j, \\qquad j = 1,\\dots,${H}`
-            : `z${s}_j = \\sum_{i=1}^{${H}} w${s}_{ji}\\,a${S(l)}_i + b${s}_j, \\qquad j = 1,\\dots,${H}`,
-          `W${s} \\in \\mathbb{R}^{${H}\\times ${inDim(l)}}, \\qquad \\mathbf{b}${s} \\in \\mathbb{R}^{${H}}`,
-        ],
-        note: first
-          ? `Each neuron in the ${layerLower(l)} takes a weighted sum of the two inputs and adds its bias. Row j of W⁽¹⁾ holds neuron j’s two input weights. The result z is called the pre-activation.`
-          : `This layer works exactly like the one before it, except its inputs are the previous layer’s activations a${usup(l)} instead of the raw inputs. Stacking layers lets the network build more complex features out of simpler ones.`,
-        hl: { nodes: [srcKey(l), key], edges: [`e${l}`], dir: 'fwd' },
-        vals: { [srcKey(l)]: srcVals(l), [key]: { arr: c.z[l], label: 'z', kind: 'fwd' } },
+    add('loss', 'fwd', L + 2, 'Sample loss', [], () => {
+      const p = probs[label];
+      const used = Math.max(p, 1e-12);
+      const term = binary ? (label === 1 ? T`\hat y` : T`1-\hat y`) : T`\hat y_{${label + 1}}`;
+      return trace('How much loss did this sample produce?', `Cross-entropy gets smaller as the model assigns more probability to the true class.${p < used ? ' For this calculation, the app floors the probability at 10⁻¹².' : ''}`, {
+        inputs: [{ label: 'True class from the input', text: classNames[label] }, value('True-class probability from prediction', p)],
+        sections: [section('Take the negative log', T`L=-\log(p_{\text{true}}),\qquad p_{\text{true}}=${term}`,
+          T`L=-\log(${number(used)})\approx${number(loss)}`)],
+        result: { label: 'Loss for this sample', math: number(loss), text: 'Backpropagation starts here and asks how changing the output score would change this loss.' },
+        details: [detail('Show the full cross-entropy formula', binary
+          ? T`L=-[y\log\hat y+(1-y)\log(1-\hat y)]`
+          : T`L=-\sum_k y_k\log\hat y_k`,
+        `Only the term for ${classNames[label]} survives because its target is 1.`)],
+        hl: nodes([node(L, binary ? 0 : label), 'loss'], [`l-${binary ? 0 : label}`]),
+        vals: { out: display(c.yhat, 'ŷ'), loss: display([loss], 'L') },
       });
+    });
 
-      const arows = [];
-      for (let j = 0; j < H; j++) arows.push(`a${s}_{${n1(j)}} &= ${chain(act.subF(c.z[l][j]), val(c.a[l][j]), c.a[l][j])}`);
-      steps.push({
-        id: `a${l + 1}`, band: l + 1, phase: 'fwd', title: `${layerName(l)}: ${act.name} activation`,
-        short: `a${usup(l + 1)} = f(z${usup(l + 1)})`,
-        blocks: F ? [
-          `f(z) = ${act.texF}`,
-          aligned(arows),
-        ] : [
-          `\\mathbf{a}${s} = f\\big(\\mathbf{z}${s}\\big)`,
-          `a${s}_j = f\\big(z${s}_j\\big) \\qquad \\text{(applied to each neuron separately)}`,
-        ],
-        note: first
-          ? `${act.name} is applied to each neuron on its own. This nonlinearity is what lets the network bend its decision boundary. ${act.blurb}`
-          : `Every hidden layer uses the same activation, ${act.name}. Without a nonlinearity between them, two stacked layers would collapse into a single linear layer.`,
-        hl: { nodes: [key], edges: [], dir: 'fwd' },
-        vals: { [key]: { arr: c.a[l], label: 'a', kind: 'fwd' } },
-      });
-    }
+    add('dzout', 'bwd', L + 2, 'Output gradient', binary ? [] : [choice(L)], (k = 0) => {
+      const p = c.yhat[k], y = g.t[k], delta = g.dz[L][k];
+      const lossSlope = y === 1 ? -1 / p : 1 / (1 - p), sigmoidSlope = p * (1 - p);
+      const saturated = p === 0 || p === 1 || !Number.isFinite(lossSlope);
+      return trace('How does loss change with the output score?',
+        binary ? (saturated ? 'The probability is at numerical saturation. The model uses the combined rule to avoid dividing by a probability at the limit.' : 'Trace the slope from loss to probability, then from probability to the score.')
+          : 'Each score can affect all the softmax probabilities. With cross-entropy, the combined gradient for a class simplifies to its probability minus its target.', {
+          inputs: [value('Predicted probability from prediction', p), value('Target from input', y)],
+          sections: binary && !saturated ? [
+            section('1. How does loss respond to the probability?', T`${d('L', '\\hat y')}=-\frac{y}{\hat y}+\frac{1-y}{1-\hat y}`,
+              T`${y === 1 ? T`-\frac{1}{${number(p)}}` : T`\frac{1}{${number(1 - p)}}`}\approx${number(lossSlope)}`),
+            section('2. How does probability respond to the score?', T`${d('\\hat y', `z${so}`)}=\hat y(1-\hat y)`,
+              T`${number(p)}\times${number(1 - p)}\approx${number(sigmoidSlope)}`),
+            section('3. Multiply the two slopes', T`\delta${so}=${d('L', `z${so}`)}=${d('L', '\\hat y')}\cdot${d('\\hat y', `z${so}`)}`,
+              T`\underbrace{${signed(lossSlope)}}_{\text{Step 1}}\times\underbrace{${number(sigmoidSlope)}}_{\text{Step 2}}\approx${number(delta)}`),
+          ] : [section(binary ? 'Use the combined rule at saturation' : 'Subtract the target from the probability',
+            T`\delta${so}${binary ? '' : '_k'}=\hat y${binary ? '' : '_k'}-y${binary ? '' : '_k'}`,
+            T`${number(p)}-${y}\approx${number(delta)}`)],
+          tables: binary ? [] : [table(['Class', 'Probability', 'Target', 'Gradient δ'],
+            c.yhat.map((prob, i) => [i === label ? `${classNames[i]} (true)` : classNames[i],
+              value('', prob), item('', String(g.t[i])), value('', g.dz[L][i])]), k)],
+          result: { label: 'Output score gradient δ', math: number(delta), text: delta === 0
+            ? 'The output score has zero gradient for this sample at the model’s numerical precision.'
+            : `A small ${delta < 0 ? 'increase' : 'decrease'} in this score would lower the loss. This gradient feeds the weight and bias calculations.` },
+          details: binary ? [detail('Why does this simplify to ŷ − y?', [
+            T`\left(-\frac{y}{\hat y}+\frac{1-y}{1-\hat y}\right)\hat y(1-\hat y)`,
+            T`=-y(1-\hat y)+(1-y)\hat y=\hat y-y`,
+          ], 'The probability factors cancel when the probability is strictly between 0 and 1. The model computes the simplified difference directly, including at numerical saturation.')]
+            : [detail('Show the softmax derivation', [
+              T`${d('\\hat y_m', 'z_k')}=\hat y_m\big(\mathbf{1}[m=k]-\hat y_k\big)`,
+              T`${d('L', 'z_k')}=\sum_m\left(-\frac{y_m}{\hat y_m}\right)\hat y_m\big(\mathbf{1}[m=k]-\hat y_k\big)`,
+              T`=\hat y_k\sum_m y_m-y_k=\hat y_k-y_k`,
+            ], 'The indicator is 1 when the two class indices match. The target entries sum to 1.')],
+          hl: nodes([node(L, k), 'loss'], [`l-${k}`], 'bwd'),
+          vals: { out: display(g.dz[L], 'δ', 'bwd'), loss: display([loss], 'L') },
+        });
+    });
 
-    // output pre-activation
-    {
-      const aL = inVals(L), WL = net.W[L], bL = net.b[L], zo = c.z[L];
-      const rows = [];
-      for (let k = 0; k < O; k++) {
-        const terms = aL.map((a, j) => `${parP(WL[k][j])} \\cdot ${valP(a)}`).join(' + ');
-        rows.push(`z${So}_{${n1(k)}} &= ${terms} ${signed(bL[k], par)} = ${val(zo[k])}`);
-      }
-      steps.push({
-        id: 'zout', band: L + 1, phase: 'fwd', title: 'Output layer: weighted sum', short: `z${usup(L + 1)} = W${usup(L + 1)}a${usup(L)} + b${usup(L + 1)}`,
-        blocks: F ? [
-          `\\mathbf{z}${So} = ${mat(WL.map(r => r.map(par)))}\\,${col(aL.map(val))} + ${col(bL.map(par))} = ${col(zo.map(val))}`,
-          aligned(rows),
-        ] : [
-          `\\mathbf{z}${So} = W${So}\\,\\mathbf{a}${S(L)} + \\mathbf{b}${So}`,
-          `z${So}_k = \\sum_{j=1}^{${H}} w${So}_{kj}\\,a${S(L)}_j + b${So}_k, \\qquad k = ${O === 1 ? '1' : `1,\\dots,${O}`}`,
-          `W${So} \\in \\mathbb{R}^{${O}\\times ${H}}`,
-        ],
-        note: sig
-          ? `With two classes the output layer has a single neuron. It combines all of the last hidden layer’s activations into one score, often called a logit.`
-          : `With ${O} classes there is one output neuron per class. Each one combines all of the last hidden layer’s activations into a score (logit) for its class.`,
-        hl: { nodes: [srcKey(L), 'out'], edges: [`e${L}`], dir: 'fwd' },
-        vals: { [srcKey(L)]: srcVals(L), out: { arr: zo, label: 'z', kind: 'fwd' } },
+    for (let l = L; l >= 0; l--) {
+      const s = S(l + 1);
+      add(`dW${l + 1}`, 'bwd', l + 1, `${layer(l)} gradients`, [choice(l), sourceChoice(l)], (j, i) => {
+        const inputs = net.input(c, l), delta = g.dz[l][j], x = inputs[i];
+        const a = l === 0 ? T`\mathbf{x}` : T`\mathbf{a}${S(l)}`;
+        return trace('How sensitive is loss to this weight and bias?', 'The connection weight scales its source value. The bias weight scales the constant 1.', {
+          inputs: [value('Destination score gradient δ', delta), value(`Source value · ${sourceName(l, i)}`, x)],
+          sections: [
+            section('Weight gradient · destination gradient × source value', T`${d('L', `w${s}_{ji}`)}=\delta${s}_j\cdot${l === 0 ? 'x_i' : T`a${S(l)}_i`}`, T`${signed(delta)}\times${signed(x)}\approx${number(g.dW[l][j][i])}`),
+            section('Bias gradient · destination gradient × 1', T`${d('L', `b${s}_j`)}=\delta${s}_j\cdot 1`, T`${signed(delta)}\times1=${number(g.db[l][j])}`),
+          ],
+          result: { label: 'Parameter gradients', text: 'These two gradients tell the update step how sensitive the loss is to this weight and bias.' },
+          details: [detail('Show all weight and bias gradients', [
+            T`${d('L', `W${s}`)}=\boldsymbol{\delta}${s}\left(${a}\right)^\top\approx${matrix(g.dW[l])}`,
+            T`${d('L', T`\mathbf{b}${s}`)}=\boldsymbol{\delta}${s}=${column(g.db[l])}`,
+          ])],
+          hl: nodes([node(l - 1, i), node(l, j), bias(l, j)], [edge(l, j, i)], 'bwd'),
+          vals: { [group(l - 1)]: inputVals(l), [group(l)]: display(g.dz[l], 'δ', 'bwd') },
+        });
       });
-    }
-
-    // prediction
-    const zo = c.z[L];
-    if (sig) {
-      const p = c.yhat[0];
-      steps.push({
-        id: 'yhat', band: L + 1, phase: 'fwd', title: 'Prediction: sigmoid', short: `ŷ = σ(z${usup(L + 1)})`,
-        blocks: F ? [
-          `\\sigma(z) = \\frac{1}{1+e^{-z}}`,
-          `\\hat{y} = \\frac{1}{1+e^{-${P(zo[0])}}} = ${val(p)}`,
-          `P(${cname(1)} \\mid \\mathbf{x}) = ${val(p)}, \\qquad P(${cname(0)} \\mid \\mathbf{x}) = 1-\\hat{y} = ${val(1 - p)}`,
-        ] : [
-          `\\hat{y} = \\sigma\\big(z${So}\\big)`,
-          `\\hat{y} = P(y = 1 \\mid \\mathbf{x})`,
-        ],
-        note: 'For a two-class dataset the output activation is the sigmoid. It squashes the logit into (0, 1) so it can be read as the probability of class 1.',
-        hl: { nodes: ['out'], edges: [], dir: 'fwd' },
-        vals: { out: { arr: c.yhat, label: 'ŷ', kind: 'fwd' } },
+      if (l === 0) continue;
+      const h = l - 1, sh = S(l);
+      add(`da${l}`, 'bwd', l + 1, `Back to ${layer(h).toLowerCase()}`, [choice(h)], j => {
+        const nextGrad = g.dz[l], terms = nextGrad.map((delta, k) => net.W[l][k][j] * delta);
+        return trace('How does the gradient reach this hidden activation?', 'Trace the outgoing connections backward. Each connected neuron sends back its gradient multiplied by that connection’s weight.', {
+          sections: [section('Add the contributions from the next layer', T`${d('L', `a${sh}_j`)}=\sum_k w${s}_{kj}\delta${s}_k`)],
+          tables: [table(['Next neuron', 'Weight', 'Score gradient δ', 'Contribution'],
+            nextGrad.map((delta, k) => [neuronName(l, k), value('', net.W[l][k][j]), value('', delta), value('', terms[k])]))],
+          after: [section('Sum the weighted contributions', null, T`${terms.map(signed).join(' + ')}\approx${number(g.da[h][j])}`)],
+          result: { label: 'Activation gradient ∂L/∂a', math: number(g.da[h][j]), text: 'Next, multiply by the activation’s slope to reach this neuron’s score.' },
+          details: [detail('Show matrix form', [
+            T`${d('L', T`\mathbf{a}${sh}`)}=(W${s})^\top\boldsymbol{\delta}${s}`,
+            T`${matrix(net.W[l][0].map((_, i) => net.W[l].map(row => row[i])))}\,${column(nextGrad)}\approx${column(g.da[h])}`,
+          ], 'Transposing W groups the connections by the neuron that receives the gradient.')],
+          hl: nodes([node(h, j), ...indices(nextGrad).map(k => node(l, k))], indices(nextGrad).map(k => edge(l, k, j)), 'bwd'),
+          vals: { [group(h)]: display(g.da[h], '∂L/∂a', 'bwd'), [group(l)]: display(nextGrad, 'δ', 'bwd') },
+        });
       });
-    } else {
-      const ex = zo.map(Math.exp);
-      const sum = ex.reduce((a, b) => a + b, 0);
-      const rows = zo.map((z, k) => `\\hat{y}_{${n1(k)}} &= \\frac{e^{${f3(z)}}}{${f3(sum)}} = \\frac{${f3(ex[k])}}{${f3(sum)}} = ${val(c.yhat[k])} \\quad (${cname(k)})`);
-      steps.push({
-        id: 'yhat', band: L + 1, phase: 'fwd', title: 'Prediction: softmax', short: `ŷ = softmax(z${usup(L + 1)})`,
-        blocks: F ? [
-          `\\hat{y}_k = \\frac{e^{z${So}_k}}{\\sum_{m=1}^{${O}} e^{z${So}_m}}, \\qquad \\sum_{m} e^{z_m} = ${zo.map(z => `e^{${f3(z)}}`).join(' + ')} = ${f3(sum)}`,
-          aligned(rows),
-        ] : [
-          `\\hat{\\mathbf{y}} = \\operatorname{softmax}\\big(\\mathbf{z}${So}\\big)`,
-          `\\hat{y}_k = \\operatorname{softmax}\\big(\\mathbf{z}${So}\\big)_k = P(\\text{class } k \\mid \\mathbf{x})`,
-        ],
-        note: `For a ${O}-class dataset the output activation is softmax. It exponentiates every logit and normalizes, so the outputs are positive and sum to 1, giving a probability for each class.`,
-        hl: { nodes: ['out'], edges: [], dir: 'fwd' },
-        vals: { out: { arr: c.yhat, label: 'ŷ', kind: 'fwd' } },
-      });
-    }
-
-    // loss
-    const Lval = net.loss(c, label);
-    if (sig) {
-      const p = c.yhat[0];
-      steps.push({
-        id: 'loss', band: L + 2, phase: 'fwd', title: 'Loss: binary cross-entropy', short: 'L(ŷ, y)',
-        blocks: F ? [
-          `L = -\\big[\\, ${label} \\cdot \\log(${val(p)}) + ${1 - label} \\cdot \\log(${val(1 - p)}) \\,\\big]`,
-          `L = ${label === 1 ? `-\\log(${f3(p)})` : `-\\log(${f3(1 - p)})`} = ${val(Lval)}`,
-        ] : [
-          `L = -\\big[\\, y \\log \\hat{y} + (1-y) \\log(1-\\hat{y}) \\,\\big]`,
-        ],
-        note: 'Cross-entropy is small when the network gives the true class a high probability, and it grows quickly as that probability approaches 0. Only one of the two terms is active for any given sample.',
-        hl: { nodes: ['out', 'loss'], edges: ['el'], dir: 'fwd' },
-        vals: { out: { arr: c.yhat, label: 'ŷ', kind: 'fwd' }, loss: { arr: [Lval], label: 'L', kind: 'fwd' } },
-      });
-    } else {
-      const terms = c.yhat.map((p, k) => `${g.t[k]} \\cdot \\log(${val(p)})`).join(' + ');
-      steps.push({
-        id: 'loss', band: L + 2, phase: 'fwd', title: 'Loss: categorical cross-entropy', short: 'L(ŷ, y)',
-        blocks: F ? [
-          `L = -\\big[\\, ${terms} \\,\\big]`,
-          `L = -\\log(${f3(c.yhat[label])}) = ${val(Lval)}`,
-        ] : [
-          `L = -\\sum_{k=1}^{${O}} y_k \\log \\hat{y}_k`,
-          `L = -\\log \\hat{y}_{c} \\qquad \\text{where } c \\text{ is the true class}`,
-        ],
-        note: 'Because y is one-hot, only the true class’s term survives. The loss is the negative log of the probability the network gave the correct answer.',
-        hl: { nodes: ['out', 'loss'], edges: ['el'], dir: 'fwd' },
-        vals: { out: { arr: c.yhat, label: 'ŷ', kind: 'fwd' }, loss: { arr: [Lval], label: 'L', kind: 'fwd' } },
+      add(`dz${l}`, 'bwd', l, `${layer(h)} slope`, [choice(h)], j => {
+        const z = c.z[h][j], slope = g.dadz[h][j], incoming = g.da[h][j], delta = g.dz[h][j];
+        return trace(`How does the gradient pass through ${act.name}?`, 'Evaluate the slope at the same score used in the forward pass, then multiply by the incoming gradient.', {
+          inputs: [value('Pre-activation z from the forward pass', z), value('Incoming activation gradient ∂L/∂a', incoming)],
+          sections: [
+            section('Evaluate the local slope', T`f'(z)=${act.texDf}`, T`f'(${number(z)})\approx${number(slope)}`),
+            section('Multiply by the incoming gradient', T`\delta${sh}_j=${d('L', `a${sh}_j`)}\cdot f'(z${sh}_j)`, T`${signed(incoming)}\times${number(slope)}\approx${number(delta)}`),
+          ],
+          plot: { z, a: c.a[h][j], act, slope: true, rate: slope, rateMath: number(slope) },
+          result: { label: 'Hidden score gradient δ', math: number(delta), text: act.id === 'relu' && z === 0
+            ? 'ReLU has a corner here. The app uses a slope of zero at the corner.'
+            : slope === 0 ? 'The local slope is zero, so this neuron passes back zero gradient for this sample.'
+              : 'The next calculation uses this score gradient for the incoming weights and bias.' },
+          details: [detail('Show all hidden score gradients', T`\boldsymbol{\delta}${sh}=${column(g.dz[h])}`, act.gradNote)],
+          hl: nodes([node(h, j)], [], 'bwd'), vals: { [group(h)]: display(g.dz[h], 'δ', 'bwd') },
+        });
       });
     }
 
-    /* ================= BACKWARD ================= */
-    const dzo = g.dz[L];
-
-    // output error
-    if (sig) {
-      const p = c.yhat[0];
-      const dLdy = -label / p + (1 - label) / (1 - p);
-      steps.push({
-        id: 'dzout', band: L + 2, phase: 'bwd', title: 'Output error', short: `δ${usup(L + 1)} = ŷ − y`,
-        blocks: F ? [
-          `${dfrac('L', '\\hat{y}')} = -\\frac{y}{\\hat{y}} + \\frac{1-y}{1-\\hat{y}} = -\\frac{${label}}{${f3(p)}} + \\frac{${1 - label}}{${f3(1 - p)}} = ${grd(dLdy)}`,
-          `${dfrac('\\hat{y}', `z${So}`)} = \\sigma'(z${So}) = \\hat{y}\\,(1-\\hat{y}) = ${f3(p)} \\cdot ${f3(1 - p)} = ${val(p * (1 - p))}`,
-          `\\delta${So} = ${grdP(dLdy)} \\cdot ${valP(p * (1 - p))} = \\hat{y} - y = ${f3(p)} - ${label} = ${grd(dzo[0])}`,
-        ] : [
-          `\\delta${So} = ${dfrac('L', `z${So}`)} = ${dfrac('L', '\\hat{y}')} \\cdot ${dfrac('\\hat{y}', `z${So}`)}`,
-          `\\delta${So} = \\hat{y} - y`,
-        ],
-        note: 'Backpropagation starts at the loss and applies the chain rule. For sigmoid with binary cross-entropy, the two derivatives cancel to give the simple error ŷ − y. This pairing is the reason the dataset’s class count picks the output activation.',
-        hl: { nodes: ['loss', 'out'], edges: ['el'], dir: 'bwd' },
-        vals: { out: { arr: dzo, label: 'δ', kind: 'bwd' }, loss: { arr: [Lval], label: 'L', kind: 'fwd' } },
-      });
-    } else {
-      const rows = c.yhat.map((p, k) => `\\delta${So}_{${n1(k)}} &= ${f3(p)} - ${g.t[k]} = ${grd(dzo[k])}`);
-      steps.push({
-        id: 'dzout', band: L + 2, phase: 'bwd', title: 'Output error', short: `δ${usup(L + 1)} = ŷ − y`,
-        blocks: F ? [
-          `${dfrac('\\hat{y}_m', 'z_k')} = \\hat{y}_m\\big([m{=}k] - \\hat{y}_k\\big), \\qquad ${dfrac('L', '\\hat{y}_m')} = -\\frac{y_m}{\\hat{y}_m}`,
-          `${dfrac('L', 'z_k')} = \\sum_m -\\frac{y_m}{\\hat{y}_m}\\,\\hat{y}_m\\big([m{=}k] - \\hat{y}_k\\big) = \\hat{y}_k \\textstyle\\sum_m y_m - y_k = \\hat{y}_k - y_k`,
-          aligned(rows),
-        ] : [
-          `\\boldsymbol{\\delta}${So} = ${dfrac('L', `\\mathbf{z}${So}`)} = \\Big(${dfrac('\\hat{\\mathbf{y}}', `\\mathbf{z}${So}`)}\\Big)^{\\!\\top} ${dfrac('L', '\\hat{\\mathbf{y}}')}`,
-          `\\boldsymbol{\\delta}${So} = \\hat{\\mathbf{y}} - \\mathbf{y}`,
-        ],
-        note: 'Backpropagation starts at the loss and applies the chain rule. For softmax with cross-entropy, the softmax Jacobian and the log-loss derivative combine to give ŷ − y. The output for the true class gets a negative error that pushes its score up, and every other class gets a positive error that pushes its score down.',
-        hl: { nodes: ['loss', 'out'], edges: ['el'], dir: 'bwd' },
-        vals: { out: { arr: dzo, label: 'δ', kind: 'bwd' }, loss: { arr: [Lval], label: 'L', kind: 'fwd' } },
-      });
-    }
-
-    // gradients for layer l's weights
-    const gradStep = l => {
-      const s = S(l + 1), inp = inVals(l), d = g.dz[l], key = nodeKey(l), src = srcKey(l);
-      const isOut = l === L;
-      // written-out rows: first destination neuron (or every neuron for the first layer, which has only 2 inputs)
-      const rowsFor = j => inp.map((v, i) => `${dfrac('L', `w${s}_{${n1(j)}${n1(i)}}`)} &= ${grdP(d[j])} \\cdot ${valP(v)} = ${grd(g.dW[l][j][i])}`);
-      const rows = l === 0
-        ? d.map((_, j) => rowsFor(j).join(' &\\qquad '))
-        : rowsFor(0);
-      const multi = l !== 0 && d.length > 1;
-      return {
-        id: `dW${l + 1}`, band: l + 1, phase: 'bwd', title: isOut ? 'Output-layer gradients' : L === 1 ? 'Hidden-layer gradients' : `${layerName(l)} gradients`,
-        short: `∂L/∂W${usup(l + 1)} = δ${usup(l + 1)}${inText(l)}ᵀ`,
-        blocks: F ? [
-          `${dfrac('L', `W${s}`)} = ${col(d.map(grd))}\\,${mat([inp.map(val)])} = ${mat(g.dW[l].map(r => r.map(grd)))}, \\qquad ${dfrac('L', `\\mathbf{b}${s}`)} = ${col(g.db[l].map(grd))}`,
-          aligned(rows),
-        ] : [
-          `${dfrac('L', `w${s}_{ji}`)} = ${dfrac('L', `z${s}_j`)} \\cdot ${dfrac(`z${s}_j`, `w${s}_{ji}`)} = \\delta${s}_j\\, ${inElJ(l)}`,
-          `${dfrac('L', `W${s}`)} = \\boldsymbol{\\delta}${s}\\,${l === 0 ? '\\mathbf{x}^{\\top}' : `\\mathbf{a}^{(${l})\\top}`}, \\qquad ${dfrac('L', `\\mathbf{b}${s}`)} = \\boldsymbol{\\delta}${s}`,
-        ],
-        note: (isOut
-          ? 'A weight’s gradient is the error at its destination times the activation at its source. Large activations feeding a large error get the biggest updates.'
-          : l === 0
-            ? 'The first layer follows the same pattern as every other layer: error at the destination times the value at the source. Here the sources are the raw inputs x₁ and x₂.'
-            : `Same pattern again: the error δ${usup(l + 1)} at each neuron of this layer times the activation a${usup(l)} that fed it.`)
-          + (multi ? ` The rows written out below are for ${isOut ? 'output' : 'destination'} neuron 1.` : ''),
-        hl: { nodes: [src, key], edges: [`e${l}`], dir: 'bwd' },
-        vals: { [src]: srcVals(l), [key]: { arr: d, label: 'δ', kind: 'bwd' } },
-      };
-    };
-
-    for (let l = L; l >= 1; l--) {
-      steps.push(gradStep(l));
-
-      // send the error back into hidden layer h = l - 1
-      const h = l - 1, sh = S(l), sl = S(l + 1), hk = `h${h}`, key = nodeKey(l);
-      const rows = [];
-      for (let j = 0; j < H; j++) {
-        const terms = g.dz[l].map((d, k) => `${parP(net.W[l][k][j])} \\cdot ${grdP(d)}`).join(' + ');
-        rows.push(`${dfrac('L', `a${sh}_{${n1(j)}}`)} &= ${terms} = ${grd(g.da[h][j])}`);
-      }
-      const nOut = g.dz[l].length;
-      steps.push({
-        id: `da${l}`, band: l + 1, phase: 'bwd', title: `Send the error back to the ${layerLower(h)}`,
-        short: `∂L/∂a${usup(l)} = W${usup(l + 1)}ᵀδ${usup(l + 1)}`,
-        blocks: F ? [
-          `${dfrac('L', `\\mathbf{a}${sh}`)} = W^{(${l + 1})\\top}\\boldsymbol{\\delta}${sl} = ${mat(transpose(net.W[l]).map(r => r.map(par)))}\\,${col(g.dz[l].map(grd))} = ${col(g.da[h].map(grd))}`,
-          aligned(rows),
-        ] : [
-          `${dfrac('L', `a${sh}_j`)} = \\sum_{k=1}^{${nOut}} ${dfrac('L', `z${sl}_k`)} \\cdot ${dfrac(`z${sl}_k`, `a${sh}_j`)} = \\sum_{k} \\delta${sl}_k\\, w${sl}_{kj}`,
-          `${dfrac('L', `\\mathbf{a}${sh}`)} = W^{(${l + 1})\\top}\\boldsymbol{\\delta}${sl}`,
-        ],
-        note: `Each neuron’s share of the blame is the error from the layer above sent back along the same weights used in the forward pass. Multiplying by the transpose of W${usup(l + 1)} runs those connections in reverse.`,
-        hl: { nodes: [hk, key], edges: [`e${l}`], dir: 'bwd' },
-        vals: { [hk]: { arr: g.da[h], label: '∂a', kind: 'bwd' }, [key]: { arr: g.dz[l], label: 'δ', kind: 'bwd' } },
-      });
-
-      // through the activation
-      const arows = [];
-      for (let j = 0; j < H; j++) {
-        arows.push(
-          `${dfrac(`a${sh}_{${n1(j)}}`, `z${sh}_{${n1(j)}}`)} &= ${chain(act.subDf(c.z[h][j]), val(g.dadz[h][j]), g.dadz[h][j])}` +
-          ` &\\qquad \\delta${sh}_{${n1(j)}} &= ${grdP(g.da[h][j])} \\cdot ${valP(g.dadz[h][j])} = ${grd(g.dz[h][j])}`);
-      }
-      steps.push({
-        id: `dz${l}`, band: l, phase: 'bwd', title: `Back through the ${act.name} activation${L > 1 ? ` (layer ${l})` : ''}`,
-        short: `δ${usup(l)} = ∂L/∂a ⊙ ∂a/∂z`,
-        blocks: F ? [
-          `${dfrac('a', 'z')} = f'(z) = ${act.texDf}, \\qquad \\delta${sh}_j = ${dfrac('L', `a${sh}_j`)} \\cdot f'\\big(z${sh}_j\\big)`,
-          aligned(arows),
-        ] : [
-          `\\boldsymbol{\\delta}${sh} = ${dfrac('L', `\\mathbf{z}${sh}`)} = ${dfrac('L', `\\mathbf{a}${sh}`)} \\odot ${dfrac(`\\mathbf{a}${sh}`, `\\mathbf{z}${sh}`)}`,
-          `\\delta${sh}_j = ${dfrac('L', `a${sh}_j`)} \\cdot ${dfrac(`a${sh}_j`, `z${sh}_j`)}`,
-        ],
-        note: `The error has to pass back through the activation function, so it gets multiplied by the slope of f at each neuron’s z. ${act.gradNote}${L > 1 && h > 0 ? ' This happens once per hidden layer, so in deep networks small slopes can compound and shrink the gradient.' : ''}`,
-        hl: { nodes: [hk], edges: [], dir: 'bwd' },
-        vals: { [hk]: { arr: g.dz[h], label: 'δ', kind: 'bwd' } },
-      });
-    }
-    steps.push(gradStep(0));
-
-    // update
-    {
-      const upd = (P0, G0) => P0.map((r, i) => (Array.isArray(r) ? r.map((w, j) => par(w - lr * G0[i][j])) : par(r - lr * G0[i])));
-      const lrs = String(lr);
-      const blocks = [`\\eta = ${lrs} \\qquad \\text{(one SGD step on this sample)}`];
-      for (let l = L; l >= 0; l--) {
-        const s = S(l + 1);
-        blocks.push(`W${s} \\leftarrow ${mat(net.W[l].map(r => r.map(par)))} - ${lrs}\\,${mat(g.dW[l].map(r => r.map(grd)))} = ${mat(upd(net.W[l], g.dW[l]))}`);
-        blocks.push(`\\mathbf{b}${s} \\leftarrow ${col(net.b[l].map(par))} - ${lrs}\\,${col(g.db[l].map(grd))} = ${col(upd(net.b[l], g.db[l]))}`);
-      }
-      const params = Array.from({ length: L + 1 }, (_, l) => `W${S(l + 1)},\\, \\mathbf{b}${S(l + 1)}`).join(',\\, ');
-      steps.push({
-        id: 'update', band: 0, phase: 'bwd', title: 'Gradient descent update', short: 'θ ← θ − η ∂L/∂θ',
-        blocks: F ? blocks : [
-          `\\theta \\leftarrow \\theta - \\eta\\, ${dfrac('L', '\\theta')}, \\qquad \\theta \\in \\{\\, ${params} \\,\\}`,
-          optimizer === 'adam'
-            ? `\\text{Adam:}\\quad \\mathbf{m} \\leftarrow \\beta_1 \\mathbf{m} + (1-\\beta_1)\\nabla_\\theta L, \\quad \\mathbf{v} \\leftarrow \\beta_2 \\mathbf{v} + (1-\\beta_2)(\\nabla_\\theta L)^2, \\quad \\theta \\leftarrow \\theta - \\eta\\,\\frac{\\hat{\\mathbf{m}}}{\\sqrt{\\hat{\\mathbf{v}}}+\\epsilon}`
-            : `\\text{SGD with mini-batches: } \\nabla_\\theta L = \\frac{1}{B}\\sum_{b=1}^{B} \\nabla_\\theta L_b`,
-        ],
-        note: optimizer === 'adam'
-          ? 'Each parameter takes a small step downhill on the loss. The formatted view shows a plain SGD step for this one sample. During training the app averages gradients over mini-batches of 10 and uses Adam, which scales each parameter’s step using running averages of its gradients.'
-          : 'Each parameter takes a small step downhill on the loss. The formatted view shows the step for this one sample. During training the app averages these gradients over mini-batches of 10 samples before stepping.',
-        hl: {
-          nodes: ['in', ...Array.from({ length: L }, (_, l) => `h${l}`), 'out'],
-          edges: Array.from({ length: L + 1 }, (_, l) => `e${l}`), dir: 'bwd',
+    const layers = c.z.map((_, l) => layer(l));
+    add('update', 'bwd', 0, 'Update parameters', [{ key: 'update-layer', label: 'Layer', options: layers, defaultIndex: L }],
+      l => ({
+        selectors: [choice(l), { key: 'parameter', label: 'Parameter', options: ['Weight', 'Bias'] }, sourceChoice(l)],
+        render(j, isBias, i) {
+          const before = isBias ? net.b[l][j] : net.W[l][j][i];
+          const gradient = isBias ? g.db[l][j] : g.dW[l][j][i];
+          const change = -lr * gradient;
+          const after = before + change;
+          return trace('How would this parameter update?', `This one-sample SGD example uses the selected sample’s gradient and current learning rate. Training uses ${optimizer === 'adam' ? 'Adam' : 'SGD'} with mini-batches.`, {
+            inputs: [value('Current parameter', before), value('Gradient for this sample', gradient), value('Learning rate η', lr)],
+            sections: [section('Calculate the signed change', T`\Delta\theta=-\eta\frac{\partial L}{\partial\theta}`, T`-${number(lr)}\times${signed(gradient)}\approx${number(change)}`)],
+            result: { label: 'Example new parameter', math: T`${number(before)}+${signed(change)}\approx${number(after)}`,
+              text: 'The worked example leaves the network parameters in place.' },
+            details: [detail(`How training updates parameters with ${optimizer === 'adam' ? 'Adam' : 'SGD'}`, [
+              T`g_{\text{batch}}=\frac{1}{B}\sum_{i=1}^{B}g_i`,
+              optimizer === 'adam'
+                ? T`\theta\leftarrow\theta-\eta\frac{\hat m}{\sqrt{\hat v}+\epsilon}`
+                : T`\theta\leftarrow\theta-\eta\,g_{\text{batch}}`,
+            ], optimizer === 'adam'
+              ? 'Training averages gradients over mini-batches of up to 10 training points. Adam uses running first and second moments of those batch gradients.'
+              : 'Training averages gradients over mini-batches of up to 10 training points before each SGD update.')],
+            hl: nodes(isBias ? [node(l, j), bias(l, j)] : [node(l - 1, i), node(l, j)], isBias ? [] : [edge(l, j, i)], 'bwd'),
+            vals: { [group(l)]: display(g.dz[l], 'δ', 'bwd') },
+          });
         },
-        vals: {},
-      });
-    }
+      }));
 
     return steps;
   }
