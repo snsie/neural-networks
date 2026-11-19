@@ -747,3 +747,13 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+.exercise-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+@media (max-width: 560px) {
+  .topbar:has(.exercise-link) { flex-wrap: wrap; }
+  .exercise-link { font-size: 12px; padding: 5px 7px; }
+}
