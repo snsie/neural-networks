@@ -946,6 +946,14 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 .full-formula > * { flex: none; }
 .full-formula-rows { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; }
+.full-gradient-chain { gap: 10px; }
+.full-gradient-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 3px;
+  align-self: stretch; min-width: 0;
+}
+.full-gradient-row + .full-gradient-row {
+  border-block-start: 1px solid var(--border); padding-block-start: 10px;
+}
 .formula-term {
   font: inherit; color: inherit; cursor: pointer;
   padding: 4px; background: transparent; border: 1px solid transparent;

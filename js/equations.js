@@ -211,6 +211,11 @@
       const p = c.yhat[k], y = g.t[k], delta = g.dz[L][k];
       const lossSlope = y === 1 ? -1 / p : 1 / (1 - p), sigmoidSlope = p * (1 - p);
       const saturated = p === 0 || p === 1 || !Number.isFinite(lossSlope);
+      const z = T`z${so}_1`;
+      const classScore = T`z${so}_{${k + 1}}`;
+      const outputChain = binary
+        ? T`${d('L', z)}=${d('L', '\\hat y')}\cdot${d('\\hat y', z)}`
+        : T`${d('L', classScore)}=\sum_{m=1}^{${O}}\left[${d('L', '\\hat y_m')}\cdot${d('\\hat y_m', classScore)}\right]`;
       const subtraction = T`${number(p)}-${y}\approx${number(delta)}`;
       const stableBinary = y === 1 ? sigmoidWork(-c.z[L][0], delta, true) : sigmoidWork(c.z[L][0], delta);
       const otherProbabilities = c.yhat.filter((_, i) => i !== k);
@@ -219,15 +224,15 @@
         binary ? (saturated ? 'The probability is at numerical saturation. The model uses the combined rule to avoid dividing by a probability at the limit.' : 'Trace the slope from loss to probability, then from probability to the score.')
           : 'Each score can affect all the softmax probabilities. With cross-entropy, the combined gradient for a class simplifies to its probability minus its target.', {
           inputs: [value('Predicted probability from prediction', p), value('Target from input', y)],
-          sections: binary && !saturated ? [
+          sections: [section('Chain from loss to output score', outputChain), ...(binary && !saturated ? [
             section('1. How does loss respond to the probability?', T`${d('L', '\\hat y')}=-\frac{y}{\hat y}+\frac{1-y}{1-\hat y}`,
               [
                 T`-\frac{${y}}{${number(p)}}+\frac{1-${y}}{1-${number(p)}}`,
                 T`\approx ${y === 1 ? T`-\frac{1}{${number(p)}}` : T`\frac{1}{${number(1 - p)}}`}\approx${number(lossSlope)}`,
               ]),
-            section('2. How does probability respond to the score?', T`${d('\\hat y', `z${so}`)}=\hat y(1-\hat y)`,
+            section('2. How does probability respond to the score?', T`${d('\\hat y', z)}=\hat y(1-\hat y)`,
               T`${number(p)}\times(1-${number(p)})\approx${product(p, 1 - p)}\approx${number(sigmoidSlope)}`),
-            section('3. Multiply the two slopes', T`\delta${so}=${d('L', `z${so}`)}=${d('L', '\\hat y')}\cdot${d('\\hat y', `z${so}`)}`,
+            section('3. Multiply the two slopes', T`\delta${so}=${d('L', z)}`,
               T`\underbrace{${signed(lossSlope)}}_{\text{Step 1}}\times\underbrace{${number(sigmoidSlope)}}_{\text{Step 2}}\approx${number(delta)}`),
           ] : [section(binary ? 'Use the combined rule at saturation' : 'Subtract the target from the probability',
             binary
@@ -236,7 +241,7 @@
             binary ? stableBinary : y === 0 ? subtraction : [
               ...(p === 1 ? [] : [subtraction]),
               T`\delta${so}_k=-\sum_{i\ne k}\hat y_i\approx ${trueClassSum}\approx${number(delta)}`,
-            ])],
+            ])])],
           tables: binary ? [] : [table(['Class', 'Probability', 'Target', 'Gradient δ'],
             c.yhat.map((prob, i) => [i === label ? `${classNames[i]} (true)` : classNames[i],
               value('', prob), item('', String(g.t[i])), value('', g.dz[L][i])]), k)],
@@ -261,12 +266,22 @@
       const s = S(l + 1);
       add(`dW${l + 1}`, 'bwd', l + 1, `${layer(l)} gradients`, [choice(l), sourceChoice(l)], (j, i) => {
         const inputs = net.input(c, l), delta = g.dz[l][j], x = inputs[i];
+        const z = T`z${s}_{${j + 1}}`;
+        const w = T`w${s}_{${j + 1},${i + 1}}`;
+        const b = T`b${s}_{${j + 1}}`;
+        const source = l === 0 ? T`x_{${i + 1}}` : T`a${S(l)}_{${i + 1}}`;
         const a = l === 0 ? T`\mathbf{x}` : T`\mathbf{a}${S(l)}`;
         return trace('How sensitive is loss to this weight and bias?', 'The connection weight scales its source value. The bias weight scales the constant 1.', {
           inputs: [value('Destination score gradient δ', delta), value(`Source value · ${sourceName(l, i)}`, x)],
           sections: [
-            section('Weight gradient · destination gradient × source value', T`${d('L', `w${s}_{ji}`)}=\delta${s}_j\cdot ${l === 0 ? 'x_i' : T`a${S(l)}_i`}`, T`${signed(delta)}\times${signed(x)}\approx${number(g.dW[l][j][i])}`),
-            section('Bias gradient · destination gradient × 1', T`${d('L', `b${s}_j`)}=\delta${s}_j\cdot 1`, T`${signed(delta)}\times1=${number(g.db[l][j])}`),
+            section('Chain from loss to the selected weight', [
+              T`${d('L', w)}=${d('L', z)}\cdot${d(z, w)}`,
+              T`${d('L', z)}=\delta${s}_{${j + 1}},\qquad ${d(z, w)}=${source}`,
+            ], T`${d('L', w)}\approx${product(delta, x)}\approx${number(g.dW[l][j][i])}`),
+            section('Chain from loss to the bias', [
+              T`${d('L', b)}=${d('L', z)}\cdot${d(z, b)}`,
+              T`${d(z, b)}=1`,
+            ], T`${d('L', b)}\approx${signed(delta)}\times1=${number(g.db[l][j])}`),
           ],
           result: { label: 'Parameter gradients', text: 'These two gradients tell the update step how sensitive the loss is to this weight and bias.' },
           details: [detail('Show all weight and bias gradients', [
@@ -281,11 +296,20 @@
       const h = l - 1, sh = S(l);
       add(`da${l}`, 'bwd', l + 1, `Back to ${layer(h).toLowerCase()}`, [choice(h)], j => {
         const nextGrad = g.dz[l];
-        const factors = nextGrad.map((delta, k) => [net.W[l][k][j], delta]);
+        const a = T`a${sh}_{${j + 1}}`;
+        const next = nextGrad.length === 1 ? '1' : 'k';
+        const z = T`z${s}_{${next}}`;
+        const w = T`w${s}_{${next},${j + 1}}`;
+        const path = T`${d('L', z)}\cdot${d(z, a)}`;
+        const sum = nextGrad.length === 1 ? path : T`\sum_{k=1}^{${nextGrad.length}}\left[${path}\right]`;
+        const factors = nextGrad.map((delta, k) => [delta, net.W[l][k][j]]);
         return trace('How does the gradient reach this hidden activation?', 'Trace the outgoing connections backward. Each connected neuron sends back its gradient multiplied by that connection’s weight.', {
-          sections: [section('Add the contributions from the next layer', T`${d('L', `a${sh}_j`)}=\sum_k w${s}_{kj}\delta${s}_k`)],
+          sections: [section(nextGrad.length === 1 ? 'Follow the path through the next neuron' : 'Add one chain per neuron in the next layer', [
+            T`${d('L', a)}=${sum}`,
+            T`${d('L', z)}=\delta${s}_{${next}},\qquad ${d(z, a)}=${w}`,
+          ])],
           tables: [table(['Next neuron', 'Weight', 'Score gradient δ', 'Contribution'],
-            nextGrad.map((delta, k) => [neuronName(l, k), value('', net.W[l][k][j]), value('', delta), value('', factors[k][0] * delta)]))],
+            nextGrad.map((delta, k) => [neuronName(l, k), value('', net.W[l][k][j]), value('', delta), value('', factors[k][1] * delta)]))],
           after: [section('Sum the weighted contributions', null, productSum(factors, g.da[h][j]))],
           result: { label: 'Activation gradient ∂L/∂a', math: number(g.da[h][j]), text: 'Next, multiply by the activation’s slope to reach this neuron’s score.' },
           details: [detail('Show matrix form', [
@@ -298,11 +322,13 @@
       });
       add(`dz${l}`, 'bwd', l, `${layer(h)} slope`, [choice(h)], j => {
         const z = c.z[h][j], slope = g.dadz[h][j], incoming = g.da[h][j], delta = g.dz[h][j];
+        const score = T`z${sh}_{${j + 1}}`;
+        const activation = T`a${sh}_{${j + 1}}`;
         return trace(`How does the gradient pass through ${act.name}?`, 'Evaluate the slope at the same score used in the forward pass, then multiply by the incoming gradient.', {
           inputs: [value('Pre-activation z from the forward pass', z), value('Incoming activation gradient ∂L/∂a', incoming)],
           sections: [
-            section('Evaluate the local slope', T`f'(z)=${act.texDf}`, evaluated(T`f'(${number(z)})`, act.subDf(z), slope)),
-            section('Multiply by the incoming gradient', T`\delta${sh}_j=${d('L', `a${sh}_j`)}\cdot f'(z${sh}_j)`, T`${signed(incoming)}\times${number(slope)}\approx${number(delta)}`),
+            section('Evaluate the local slope', T`${d(activation, score)}=f'(${score}),\qquad f'(z)=${act.texDf}`, evaluated(T`f'(${number(z)})`, act.subDf(z), slope)),
+            section('Multiply the two partial derivatives', T`\delta${sh}_{${j + 1}}=${d('L', score)}=${d('L', activation)}\cdot${d(activation, score)}`, T`${product(incoming, slope)}\approx${number(delta)}`),
           ],
           plot: { z, a: c.a[h][j], act, slope: true, rate: slope, rateMath: number(slope) },
           result: { label: 'Hidden score gradient δ', math: number(delta), text: act.id === 'relu' && z === 0

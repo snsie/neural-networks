@@ -2,6 +2,10 @@ const T = String.raw;
 const layerNumber = n => T`^{(${n})}`;
 const nodeValue = (symbol, layer, neuron) => T`${symbol}${layerNumber(layer)}_{${neuron}}`;
 const weight = (layer, to, from) => T`w${layerNumber(layer)}_{${to},${from}}`;
+const partial = (result, input) => T`\dfrac{\partial ${result}}{\partial ${input}}`;
+const score = (layer, neuron) => nodeValue('z', layer, neuron);
+const activation = (layer, neuron) => nodeValue('a', layer, neuron);
+const times = T`\cdot`;
 
 export function forwardTerms({ L, O, act }) {
   const out = layerNumber(L + 1);
@@ -20,24 +24,75 @@ export function forwardTerms({ L, O, act }) {
   return terms;
 }
 
-export function backwardTerms({ L, sizes, O }, { l, j, i }) {
+export function backwardRows({ L, sizes, O }, { l, j, i }) {
   const layer = l + 1;
-  const terms = [[T`\dfrac{\partial L}{\partial ${weight(layer, j + 1, i + 1)}}=`]];
-  let index = j + 1;
-  for (let n = layer; n <= L; n++) {
-    const next = sizes[n + 1] === 1 ? 1 : `k_{${n + 1}}`;
-    terms.push([T`f'\big(${nodeValue('z', n, index)}\big)`, `dz${n}`]);
-    if (next === 1) terms.push([T`\,\big[`]);
-    else terms.push([T`\,\Big[\displaystyle\sum_{${next}=1}^{${sizes[n + 1]}}`, `da${n}`]);
-    terms.push([weight(n + 1, next, index), `da${n}`]);
-    index = next;
+  const neuron = j + 1;
+  const z = score(layer, neuron);
+  const w = weight(layer, neuron, i + 1);
+  const localWeight = [partial(z, w), `dW${layer}`];
+  const rows = [];
+
+  if (l === L && O === 1) {
+    rows.push([
+      [T`${partial('L', w)}=`],
+      [partial('L', T`\hat y`), 'dzout'], [times],
+      [partial(T`\hat y`, z), 'dzout'], [times], localWeight,
+    ]);
+  } else if (l === L) {
+    rows.push([[T`${partial('L', w)}=`], [partial('L', z), 'dzout', { l, j }], [times], localWeight]);
+  } else {
+    const a = activation(layer, neuron);
+    rows.push([
+      [T`${partial('L', w)}=`],
+      [partial('L', a), `da${layer}`, { l, j }], [times],
+      [partial(a, z), `dz${layer}`, { l, j }], [times], localWeight,
+    ]);
   }
-  terms.push([O === 1 ? T`(\hat y-y)` : T`(\hat y_{${index}}-y_{${index}})`, 'dzout']);
-  if (l < L) terms.push([T`\Big]`.repeat(L - l)]);
-  terms.push([T`\,\cdot\,`], [
-    l === 0 ? T`x_{${i + 1}}` : nodeValue('a', l, i + 1), `dW${layer}`,
-  ]);
-  return terms;
+
+  const index = n => sizes[n] === 1 ? 1 : T`k_{${n}}`;
+  for (let h = l; h < L; h++) {
+    const current = h + 1;
+    const next = h + 2;
+    const currentNeuron = h === l ? neuron : index(current);
+    const a = activation(current, currentNeuron);
+    const nextNeuron = index(next);
+    const nextScore = score(next, nextNeuron);
+    const branches = sizes[next] > 1;
+    const sum = branches ? T`\displaystyle\sum_{${nextNeuron}=1}^{${sizes[next]}}\bigg[` : '';
+    const selection = h === l ? { l: h, j } : undefined;
+    rows.push([
+      [T`${partial('L', a)}=${sum}`],
+      [partial('L', nextScore), h + 1 === L ? 'dzout' : `dz${next}`], [times],
+      [partial(nextScore, a), `da${current}`, selection],
+      ...(branches ? [[T`\bigg]`]] : []),
+    ]);
+    if (h + 1 < L) {
+      const hiddenScore = score(next, nextNeuron);
+      const hiddenActivation = activation(next, nextNeuron);
+      rows.push([
+        [T`${partial('L', hiddenScore)}=`],
+        [partial('L', hiddenActivation), `da${next}`], [times],
+        [partial(hiddenActivation, hiddenScore), `dz${next}`],
+      ]);
+    }
+  }
+
+  if (O === 1 && l < L) {
+    const output = score(L + 1, 1);
+    rows.push([
+      [T`${partial('L', output)}=`],
+      [partial('L', T`\hat y`), 'dzout'], [times],
+      [partial(T`\hat y`, output), 'dzout'],
+    ]);
+  } else if (O > 1) {
+    const output = score(L + 1, l === L ? neuron : index(L + 1));
+    rows.push([
+      [T`${partial('L', output)}=\displaystyle\sum_{m=1}^{${O}}\bigg[`],
+      [partial('L', T`\hat y_m`), 'dzout'], [times],
+      [partial(T`\hat y_m`, output), 'dzout'], [T`\bigg]`],
+    ]);
+  }
+  return rows;
 }
 
 const factor = value => {
@@ -85,29 +140,48 @@ export function forwardSampleRows(net, cache) {
 
 export function backwardSampleRows(net, cache, grads, { l, j, i }) {
   const { number } = Equations;
-  const { L, W } = net;
+  const { L, O, W } = net;
   const rows = [];
+  const binaryScore = cache.z[L][0];
+  const p = cache.yhat[0];
+  const complement = Activations.sigmoid(-binaryScore);
+  const lossSlope = grads.t[0] === 1 ? -1 / p : 1 / complement;
+  const sigmoidSlope = p * complement;
+  const showBinaryFactors = O === 1 && p > 0 && p < 1 && Number.isFinite(lossSlope);
 
   for (let h = L; h >= l; h--) {
     const destinations = h === l ? [j] : grads.dz[h].map((_, k) => k);
     for (const k of destinations) {
-      const delta = nodeValue(T`\delta`, h + 1, k + 1);
+      const delta = partial('L', score(h + 1, k + 1));
       const result = number(grads.dz[h][k]);
       if (h === L) {
-        rows.push([T`${delta}\approx${number(cache.yhat[k])}-${grads.t[k]}\approx${result}`, 'dzout', { l: h, j: k }]);
+        const probability = cache.yhat[k], target = grads.t[k];
+        let calculation = T`${number(probability)}-${target}`;
+        if (O === 1) {
+          calculation = showBinaryFactors ? product(lossSlope, sigmoidSlope)
+            : T`${target === 1 ? '-' : ''}\sigma(${number(target === 1 ? -binaryScore : binaryScore)})`;
+        } else if (target === 1 && probability === 1 && grads.dz[h][k] !== 0) {
+          const otherProbabilities = cache.yhat.filter((_, m) => m !== k);
+          calculation = T`-\big(${otherProbabilities.map(number).join(' + ')}\big)`;
+        }
+        rows.push([T`${delta}\approx${calculation}\approx${result}`, 'dzout', { l: h, j: k }]);
       } else {
-        const contributions = W[h + 1].map((weights, next) => product(weights[k], grads.dz[h + 1][next]));
-        const incoming = T`\frac{\partial L}{\partial ${nodeValue('a', h + 1, k + 1)}}`;
+        const contributions = W[h + 1].map((weights, next) => product(grads.dz[h + 1][next], weights[k]));
+        const incoming = partial('L', activation(h + 1, k + 1));
         rows.push(
           [T`${incoming}\approx${contributions.join(' + ')}\approx${number(grads.da[h][k])}`, `da${h + 1}`, { l: h, j: k }],
-          [T`${delta}\approx${product(grads.dadz[h][k], grads.da[h][k])}\approx${result}`, `dz${h + 1}`, { l: h, j: k }],
+          [T`${delta}\approx${product(grads.da[h][k], grads.dadz[h][k])}\approx${result}`, `dz${h + 1}`, { l: h, j: k }],
         );
       }
     }
   }
 
-  const gradient = T`\dfrac{\partial L}{\partial ${weight(l + 1, j + 1, i + 1)}}`;
-  rows.push([T`${gradient}\approx${product(grads.dz[l][j], net.input(cache, l)[i])}\approx${number(grads.dW[l][j][i])}`, `dW${l + 1}`]);
+  const gradient = partial('L', weight(l + 1, j + 1, i + 1));
+  const source = net.input(cache, l)[i];
+  const gradientFactors = l < L ? [grads.da[l][j], grads.dadz[l][j]] :
+    showBinaryFactors ? [lossSlope, sigmoidSlope] : [grads.dz[l][j]];
+  const calculation = [...gradientFactors, source].map(factor).join(T`\times`);
+  rows.push([T`${gradient}\approx${calculation}\approx${number(grads.dW[l][j][i])}`, `dW${l + 1}`]);
   return rows;
 }
 
@@ -166,11 +240,13 @@ export function wireFullEquation({ tex, goToStep, getSteps }) {
   }
 
   function renderGradient() {
-    const hasBranches = net.sizes.slice(selectedWeight.l + 2).some(size => size > 1);
-    note.textContent = hasBranches
-      ? 'Each sum adds contributions from the next layer. Select a term to see how that step works.'
-      : 'Multiply the factors along this path to get the gradient. Select a term to see how that step works.';
-    renderTerms(gradient, backwardTerms(net, selectedWeight));
+    note.textContent = 'Read each product from left to right, from loss toward the selected weight. The variable in the bottom of one fraction is at the top of the next. Each sum adds paths through the neurons or probabilities it lists. Select a fraction to open its walkthrough step.';
+    gradient.replaceChildren(...backwardRows(net, selectedWeight).map(terms => {
+      const row = document.createElement('div');
+      row.className = 'full-gradient-row';
+      renderTerms(row, terms);
+      return row;
+    }));
     renderTerms(gradientSample, backwardSampleRows(net, cache, grads, selectedWeight));
   }
 
